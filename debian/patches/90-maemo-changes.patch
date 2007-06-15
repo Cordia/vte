@@ -1,0 +1,524 @@
+diff -ur vte-0.12.2/src/keymap.c vte-trunk/src/keymap.c
+--- vte-0.12.2/src/keymap.c	2006-02-02 05:43:16.000000000 +0200
++++ vte-trunk/src/keymap.c	2007-05-07 16:53:33.000000000 +0300
+@@ -838,7 +838,7 @@
+ 
+ 	{GDK_KP_Space,		_vte_keymap_GDK_KP_Space},
+ 	{GDK_KP_Tab,		_vte_keymap_GDK_KP_Tab},
+-	{GDK_KP_Enter,		_vte_keymap_GDK_KP_Enter},
++	{GDK_KP_Enter,		_vte_keymap_GDK_Return},
+ 	{GDK_KP_F1,		_vte_keymap_GDK_KP_F1},
+ 	{GDK_KP_F2,		_vte_keymap_GDK_KP_F2},
+ 	{GDK_KP_F3,		_vte_keymap_GDK_KP_F3},
+diff -ur vte-0.12.2/src/Makefile.am vte-trunk/src/Makefile.am
+--- vte-0.12.2/src/Makefile.am	2006-05-27 01:44:45.000000000 +0300
++++ vte-trunk/src/Makefile.am	2007-05-07 16:57:11.000000000 +0300
+@@ -21,7 +21,7 @@
+ 	unitable.JIS0212 \
+ 	unitable.KSX1001
+ 
+-AM_CFLAGS = @VTE_CFLAGS@ @CFLAGS@ @X_CFLAGS@ -DG_DISABLE_ASSERT
++AM_CFLAGS = @VTE_CFLAGS@ @CFLAGS@ @X_CFLAGS@ -DG_DISABLE_ASSERT -DMAEMO_CHANGES
+ AM_LDFLAGS = @LDFLAGS@
+ 
+ EXTRA_libvte_la_SOURCES = keysyms.c
+diff -ur vte-0.12.2/src/vtebg.c vte-trunk/src/vtebg.c
+--- vte-0.12.2/src/vtebg.c	2006-03-15 13:02:59.000000000 +0200
++++ vte-trunk/src/vtebg.c	2007-05-07 16:53:33.000000000 +0300
+@@ -191,6 +191,17 @@
+ {
+ 	return GDK_FILTER_CONTINUE;
+ }
++
++static GdkPixmap *
++vte_bg_root_pixmap(VteBg *bg)
++{
++	return NULL;
++}
++
++static void
++_vte_bg_display_sync(VteBg *bg)
++{
++}
+ #endif
+ 
+ static void
+diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
+--- vte-0.12.2/src/vte.c	2006-04-27 04:08:33.000000000 +0300
++++ vte-trunk/src/vte.c	2007-05-14 11:09:44.000000000 +0300
+@@ -53,6 +53,10 @@
+ typedef gunichar wint_t;
+ #endif
+ 
++enum properties {
++	PROP_CTRLIFY = 1
++};
++
+ static void vte_terminal_set_termcap(VteTerminal *terminal, const char *path,
+ 				     gboolean reset);
+ static void vte_terminal_paste(VteTerminal *terminal, GdkAtom board);
+@@ -96,6 +100,20 @@
+ static void vte_terminal_stop_processing (VteTerminal *terminal);
+ static void vte_terminal_start_processing (VteTerminal *terminal);
+ static gboolean vte_terminal_is_processing (VteTerminal *terminal);
++#ifdef MAEMO_CHANGES
++static void vte_terminal_set_property (GObject *object,
++				       guint property_id,
++				       const GValue *value,
++				       GParamSpec *pspec);
++static void vte_terminal_get_property (GObject *object,
++				       guint property_id,
++				       GValue *value,
++				       GParamSpec *pspec);
++static gint vte_terminal_key_press (GtkWidget *widget,
++	       			    GdkEventKey *event);
++static gint vte_terminal_key_release (GtkWidget *widget,
++	       			      GdkEventKey *event);
++#endif
+ 
+ static gpointer parent_class;
+ 
+@@ -230,7 +248,7 @@
+ 	/* This limits the number of times we draw to ~40fps. */
+ 	terminal->pvt->update_timer = g_timeout_add_full (G_PRIORITY_DEFAULT_IDLE,
+ 							  VTE_UPDATE_REPEAT_TIMEOUT,
+-							  vte_update_delay_timeout,
++							  (GSourceFunc)vte_update_delay_timeout,
+ 							  terminal,
+ 							  NULL);
+ 
+@@ -321,7 +339,7 @@
+ 		 * case updates are coming in really soon. */
+ 		terminal->pvt->update_timer = g_timeout_add_full (G_PRIORITY_DEFAULT_IDLE,
+ 								  VTE_UPDATE_TIMEOUT,
+-								  vte_update_timeout,
++								  (GSourceFunc)vte_update_timeout,
+ 								  terminal,
+ 								  NULL);
+ 	}
+@@ -584,7 +602,7 @@
+ 
+ /* Emit a "commit" signal. */
+ static void
+-vte_terminal_emit_commit(VteTerminal *terminal, gchar *text, guint length)
++vte_terminal_emit_commit(VteTerminal *terminal, const gchar *text, guint length)
+ {
+ 	char *wrapped = NULL;
+ #ifdef VTE_DEBUG
+@@ -594,7 +612,7 @@
+ #endif
+ 	if (length == -1) {
+ 		length = strlen(text);
+-		wrapped = text;
++		wrapped = (char *)text;
+ 	} else {
+ 		wrapped = g_malloc0(length + 1);
+ 		memcpy(wrapped, text, length);
+@@ -3597,6 +3615,125 @@
+ }
+ 
+ /* Send text from the input method to the child. */
++static gboolean
++vte_terminal_im_retrieve_surrounding(GtkIMContext *im_context, gpointer data)
++{
++#ifdef VTE_DEBUG
++	if (_vte_debug_on(VTE_DEBUG_EVENTS)) {
++		fprintf(stderr, "Input method asked for surrounding.\n");
++	}
++#endif
++	gtk_im_context_set_surrounding(im_context, "", -1, 0);
++
++	return TRUE;
++}
++
++#ifdef MAEMO_CHANGES
++static void
++vte_terminal_clipboard_operation(VteTerminal *terminal,
++		GtkIMContextClipboardOperation operation)
++{
++#ifdef VTE_DEBUG
++	if (_vte_debug_on(VTE_DEBUG_EVENTS)) {
++		fprintf(stderr, "Input method asked to copy/paste.\n");
++	}
++#endif
++	switch (operation) {
++		case GTK_IM_CONTEXT_CLIPBOARD_OP_COPY:
++		case GTK_IM_CONTEXT_CLIPBOARD_OP_CUT:
++			vte_terminal_copy_clipboard(terminal);
++			break;
++		case GTK_IM_CONTEXT_CLIPBOARD_OP_PASTE:
++			vte_terminal_paste_clipboard(terminal);
++			break;
++	}
++}
++#endif
++
++/* Send text from the input method to the child. */
++static gboolean
++vte_terminal_im_delete_surrounding(GtkIMContext *im_context, gint arg1, gint arg2, gpointer data)
++{
++	VteTerminal *terminal;
++
++	g_assert(VTE_IS_TERMINAL(data));
++	g_assert(GTK_IS_IM_CONTEXT(im_context));
++
++#ifdef VTE_DEBUG
++	if (_vte_debug_on(VTE_DEBUG_EVENTS)) {
++		fprintf(stderr, "Input method asked to delete %d, %d.\n", arg1, arg2);
++	}
++#endif
++
++	terminal = VTE_TERMINAL(data);
++	if (arg1 != -arg2) {
++		return FALSE;
++	} else {
++		gchar *normal = NULL;
++		gchar *special = NULL;
++		struct termios tio;
++
++		switch (terminal->pvt->backspace_binding) {
++			case VTE_ERASE_ASCII_BACKSPACE:
++				normal = g_strdup("");
++				break;
++			case VTE_ERASE_ASCII_DELETE:
++				normal = g_strdup("");
++				break;
++			case VTE_ERASE_DELETE_SEQUENCE:
++				special = "kD";
++				break;
++				/* Use the tty's erase character. */
++			case VTE_ERASE_AUTO:
++			default:
++				if (terminal->pvt->pty_master != -1) {
++					if (tcgetattr(terminal->pvt->pty_master,
++								&tio) != -1) {
++						normal = g_strdup_printf("%c",
++								tio.c_cc[VERASE]);
++					}
++				}
++				break;
++		}
++		if (normal) {
++			gchar *buf = g_malloc(arg2 + 1);
++			memset(buf, *normal, arg2);
++			buf[arg2] = '\0';
++			vte_terminal_feed_child_using_modes(terminal, buf, -1);
++			g_free(buf);
++			g_free(normal);
++		} else if (special) {
++			struct _vte_termcap *termcap = terminal->pvt->termcap;
++			const gchar *tterm = terminal->pvt->emulation;
++			gssize normal_length = 0;
++			gchar *output = NULL;
++			gint i;
++
++			normal = _vte_termcap_find_string_length(termcap,
++								 tterm,
++								 special,
++								 &normal_length);
++			_vte_keymap_key_add_key_modifiers(GDK_BackSpace,
++							  terminal->pvt->modifiers,
++							  terminal->pvt->sun_fkey_mode,
++							  terminal->pvt->hp_fkey_mode,
++							  terminal->pvt->legacy_fkey_mode,
++							  terminal->pvt->vt220_fkey_mode,
++							  &normal,
++							  &normal_length);
++			output = g_strdup_printf(normal, 1);
++			for (i = 0; i < arg2; i++) {
++				vte_terminal_feed_child_using_modes(terminal,
++							    output, -1);
++			}
++			g_free(output);
++			g_free(normal);
++		}
++	}
++
++	return TRUE;
++}
++/* Send text from the input method to the child. */
+ static void
+ vte_terminal_im_commit(GtkIMContext *im_context, gchar *text, gpointer data)
+ {
+@@ -3610,6 +3747,28 @@
+ 	}
+ #endif
+ 	terminal = VTE_TERMINAL(data);
++#ifdef MAEMO_CHANGES
++	if (terminal->pvt->ctrlify) {
++		guint keyval = gdk_keyval_from_name(text);
++		if (keyval) {
++			GdkEventKey event;
++
++			terminal->pvt->ctrlify = FALSE;
++			g_object_notify(G_OBJECT(terminal), "ctrlify");
++
++			event.type = GDK_KEY_PRESS;
++			event.keyval = keyval;
++			event.state = GDK_CONTROL_MASK;
++			event.string = text;
++			vte_terminal_key_press(GTK_WIDGET(terminal), &event);
++			event.type = GDK_KEY_RELEASE;
++			vte_terminal_key_release(GTK_WIDGET(terminal), &event);
++
++			return;
++		}
++	}
++#endif
++
+ 	vte_terminal_feed_child_using_modes(terminal, text, -1);
+ 	/* Committed text was committed because the user pressed a key, so
+ 	 * we need to obey the scroll-on-keystroke setting. */
+@@ -4051,6 +4210,36 @@
+ 				}
+ 			}
+ 			break;
++#ifdef MAEMO_CHANGES
++		case GDK_Up:
++			if (terminal->pvt->ctrlify) {
++				keyval = GDK_Page_Up;
++				terminal->pvt->ctrlify = FALSE;
++				g_object_notify(G_OBJECT(terminal), "ctrlify");
++			}
++			break;
++		case GDK_Down:
++			if (terminal->pvt->ctrlify) {
++				keyval = GDK_Page_Down;
++				terminal->pvt->ctrlify = FALSE;
++				g_object_notify(G_OBJECT(terminal), "ctrlify");
++			}
++			break;
++		case GDK_Left:
++			if (terminal->pvt->ctrlify) {
++				keyval = GDK_Home;
++				terminal->pvt->ctrlify = FALSE;
++				g_object_notify(G_OBJECT(terminal), "ctrlify");
++			}
++			break;
++		case GDK_Right:
++			if (terminal->pvt->ctrlify) {
++				keyval = GDK_End;
++				terminal->pvt->ctrlify = FALSE;
++				g_object_notify(G_OBJECT(terminal), "ctrlify");
++			}
++			break;
++#endif
+ 		default:
+ 			break;
+ 		}
+@@ -4134,7 +4323,7 @@
+ 		/* If the key maps to characters, send them to the child. */
+ 		if (special != NULL) {
+ 			termcap = terminal->pvt->termcap;
+-			tterm = terminal->pvt->emulation;
++			const gchar *tterm = terminal->pvt->emulation;
+ 			normal = _vte_termcap_find_string_length(termcap,
+ 								 tterm,
+ 								 special,
+@@ -5778,6 +5967,18 @@
+ 
+ 	g_assert(VTE_IS_TERMINAL(widget));
+ 	terminal = VTE_TERMINAL(widget);
++#ifdef MAEMO_CHANGES
++	if (GTK_WIDGET_REALIZED(widget) &&
++            hildon_gtk_im_context_filter_event(terminal->pvt->im_context,
++				          (GdkEvent *)event)) {
++#ifdef VTE_DEBUG
++		if (_vte_debug_on(VTE_DEBUG_EVENTS)) {
++			fprintf(stderr, "Button press taken by IM.\n");
++		}
++#endif
++		return TRUE;
++	}
++#endif
+ 	height = terminal->char_height;
+ 	width = terminal->char_width;
+ 	delta = terminal->pvt->screen->scroll_delta;
+@@ -5963,6 +6164,18 @@
+ 
+ 	g_assert(VTE_IS_TERMINAL(widget));
+ 	terminal = VTE_TERMINAL(widget);
++#ifdef MAEMO_CHANGES
++	if (GTK_WIDGET_REALIZED(widget) &&
++            hildon_gtk_im_context_filter_event(terminal->pvt->im_context,
++				          (GdkEvent *)event)) {
++#ifdef VTE_DEBUG
++		if (_vte_debug_on(VTE_DEBUG_EVENTS)) {
++			fprintf(stderr, "Button press taken by IM.\n");
++		}
++#endif
++		return TRUE;
++	}
++#endif
+ 	_vte_terminal_set_pointer_visible(terminal, TRUE);
+ 
+ 	event_mode = terminal->pvt->mouse_send_xy_on_click ||
+@@ -6052,6 +6265,18 @@
+ 	}
+ #endif
+ 	terminal = VTE_TERMINAL(widget);
++#ifdef MAEMO_CHANGES
++	if (GTK_WIDGET_REALIZED(widget) &&
++            hildon_gtk_im_context_filter_event(terminal->pvt->im_context,
++				          (GdkEvent *)event)) {
++#ifdef VTE_DEBUG
++		if (_vte_debug_on(VTE_DEBUG_EVENTS)) {
++			fprintf(stderr, "Button press taken by IM.\n");
++		}
++#endif
++		return TRUE;
++	}
++#endif
+ 	GTK_WIDGET_SET_FLAGS(widget, GTK_HAS_FOCUS);
+ 	/* Read the keyboard modifiers, though they're probably garbage. */
+ 	if (gdk_event_get_state((GdkEvent*)event, &modifiers)) {
+@@ -6083,6 +6308,18 @@
+ 	}
+ #endif
+ 	terminal = VTE_TERMINAL(widget);
++#ifdef MAEMO_CHANGES
++	if (GTK_WIDGET_REALIZED(widget) &&
++            hildon_gtk_im_context_filter_event(terminal->pvt->im_context,
++				          (GdkEvent *)event)) {
++#ifdef VTE_DEBUG
++		if (_vte_debug_on(VTE_DEBUG_EVENTS)) {
++			fprintf(stderr, "Button press taken by IM.\n");
++		}
++#endif
++		return TRUE;
++	}
++#endif
+ 	GTK_WIDGET_UNSET_FLAGS(widget, GTK_HAS_FOCUS);
+ 	/* Read the keyboard modifiers, though they're probably garbage. */
+ 	if (gdk_event_get_state((GdkEvent*)event, &modifiers)) {
+@@ -6845,6 +7082,10 @@
+ 	/* Assume we're visible unless we're told otherwise. */
+ 	pvt->visibility_state = GDK_VISIBILITY_UNOBSCURED;
+ 
++#ifdef MAEMO_CHANGES
++	pvt->ctrlify = FALSE;
++#endif
++
+ 	/* Listen for hierarchy change notifications. */
+ 	g_signal_connect(G_OBJECT(terminal), "hierarchy-changed",
+ 			 G_CALLBACK(vte_terminal_hierarchy_changed),
+@@ -7483,8 +7724,32 @@
+ 	terminal->pvt->im_context = gtk_im_multicontext_new();
+ 	gtk_im_context_set_client_window(terminal->pvt->im_context,
+ 					 widget->window);
++
++#ifdef MAEMO_CHANGES
++	/* Hildon specific. */
++	g_object_set(G_OBJECT(terminal->pvt->im_context), "hildon_input_mode",
++			HILDON_GTK_INPUT_MODE_FULL, NULL);
++#endif
++
+ 	g_signal_connect(G_OBJECT(terminal->pvt->im_context), "commit",
+ 			 GTK_SIGNAL_FUNC(vte_terminal_im_commit), terminal);
++	g_signal_connect(G_OBJECT(terminal->pvt->im_context), "delete-surrounding",
++			GTK_SIGNAL_FUNC(vte_terminal_im_delete_surrounding),
++			terminal);
++	g_signal_connect(G_OBJECT(terminal->pvt->im_context), "retrieve-surrounding",
++			GTK_SIGNAL_FUNC(vte_terminal_im_retrieve_surrounding),
++			terminal);
++	g_signal_connect_swapped(
++			G_OBJECT(terminal->pvt->im_context), "has-selection",
++			GTK_SIGNAL_FUNC(vte_terminal_get_has_selection),
++			terminal);
++#ifdef MAEMO_CHANGES
++	g_signal_connect_swapped(
++			G_OBJECT(terminal->pvt->im_context),
++			"clipboard-operation",
++			GTK_SIGNAL_FUNC(vte_terminal_clipboard_operation),
++			terminal);
++#endif
+ 	g_signal_connect(G_OBJECT(terminal->pvt->im_context), "preedit-start",
+ 			 GTK_SIGNAL_FUNC(vte_terminal_im_preedit_start),
+ 			 terminal);
+@@ -7494,7 +7759,7 @@
+ 	g_signal_connect(G_OBJECT(terminal->pvt->im_context), "preedit-end",
+ 			 GTK_SIGNAL_FUNC(vte_terminal_im_preedit_end),
+ 			 terminal);
+-	gtk_im_context_set_use_preedit(terminal->pvt->im_context, TRUE);
++	gtk_im_context_set_use_preedit(terminal->pvt->im_context, FALSE);
+ 
+ 	/* Clear modifiers. */
+ 	terminal->pvt->modifiers = 0;
+@@ -9569,6 +9834,10 @@
+ 	parent_class = g_type_class_peek_parent (klass);
+ 	/* Override some of the default handlers. */
+ 	gobject_class->finalize = vte_terminal_finalize;
++#ifdef MAEMO_CHANGES
++	gobject_class->set_property = vte_terminal_set_property;
++	gobject_class->get_property = vte_terminal_get_property;
++#endif
+ 	widget_class->realize = vte_terminal_realize;
+ 	widget_class->scroll_event = vte_terminal_scroll;
+ 	widget_class->expose_event = vte_terminal_expose;
+@@ -9863,6 +10132,16 @@
+ 			     _vte_marshal_VOID__INT,
+ 			     G_TYPE_NONE, 1, G_TYPE_INT);
+ 
++#ifdef MAEMO_CHANGES
++	g_object_class_install_property(gobject_class,
++			PROP_CTRLIFY,
++			g_param_spec_boolean("ctrlify",
++				"Controlify next key event.",
++				"Controlify next key event.",
++				FALSE,
++				G_PARAM_READABLE | G_PARAM_WRITABLE));
++#endif
++
+ #ifdef VTE_DEBUG
+ 	/* Turn on debugging if we were asked to. */
+ 	if (getenv("VTE_DEBUG_FLAGS") != NULL) {
+@@ -11363,3 +11642,35 @@
+ 
+ 	return FALSE;
+  }
++
++#ifdef MAEMO_CHANGES
++static void vte_terminal_set_property (GObject *object,
++				       guint property_id,
++				       const GValue *value,
++				       GParamSpec *pspec)
++{
++	VteTerminal *terminal = VTE_TERMINAL(object);
++	switch (property_id) {
++	case PROP_CTRLIFY:
++		VTE_TERMINAL(object)->pvt->ctrlify = g_value_get_boolean(value);
++		g_object_notify(G_OBJECT(terminal), "ctrlify");
++		break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
++	}
++}
++static void vte_terminal_get_property (GObject *object,
++				       guint property_id,
++				       GValue *value,
++				       GParamSpec *pspec)
++{
++	VteTerminal *terminal = VTE_TERMINAL(object);
++	switch (property_id) {
++	case PROP_CTRLIFY:
++		g_value_set_boolean(value, VTE_TERMINAL(object)->pvt->ctrlify);
++		break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
++	}
++}
++#endif
+diff -ur vte-0.12.2/src/vte-private.h vte-trunk/src/vte-private.h
+--- vte-0.12.2/src/vte-private.h	2006-03-08 22:31:13.000000000 +0200
++++ vte-trunk/src/vte-private.h	2007-05-14 11:07:42.000000000 +0300
+@@ -344,6 +344,10 @@
+ 
+ 	/* Obscured? state. */
+ 	GdkVisibilityState visibility_state;
++
++#ifdef MAEMO_CHANGES
++	gboolean ctrlify;
++#endif
+ };
+ 
+ 

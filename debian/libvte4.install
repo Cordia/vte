@@ -1,0 +1,3 @@
+debian/tmp/usr/lib/libvte.so.*
+debian/tmp/usr/lib/vte/* usr/lib/libvte4/
+debian/tmp/usr/lib/libvte4/*

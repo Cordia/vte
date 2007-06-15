@@ -1,0 +1,62 @@
+diff -Nur vte-0.11.15/src/pty.c vte-0.11.15.new/src/pty.c
+--- vte-0.11.15/src/pty.c	2005-08-22 11:11:41.000000000 -0400
++++ vte-0.11.15.new/src/pty.c	2005-10-28 15:57:23.000000000 -0400
+@@ -395,6 +395,25 @@
+ 	return 0;
+ }
+ 
++static int
++_vte_pty_keep_fd(char **env_add)
++{
++   int i, res = -1;
++   if(env_add == NULL)
++      return res;
++
++   const gchar *needle="VTE_PTY_KEEP_FD=";
++   for(i=0; env_add[i] != NULL; i++) {
++      gchar *s = strstr(env_add[i],needle);
++      if(s != NULL) {
++	 res = atoi(&s[strlen(needle)]);
++	 break;
++      }
++   }
++   return res;
++}
++
++
+ /* Open the named PTY slave, fork off a child (storing its PID in child),
+  * and exec the named command in its own session as a process group leader */
+ static int
+@@ -433,11 +452,15 @@
+ 		setsid();
+ 		setpgid(0, 0);
+ 
++		
++		int keep_fd = _vte_pty_keep_fd(env_add);
+ 		/* Close most descriptors. */
+ 		for (i = 0; i < sysconf(_SC_OPEN_MAX); i++) {
+-			if ((i != ready_b[0]) && (i != ready_a[1])) {
+-				close(i);
+-			}
++		   if ((i != ready_b[0]) && 
++		       (i != ready_a[1]) && 
++		       (i != keep_fd)) {
++		      close(i);
++		   }
+ 		}
+ 
+ 		/* Open the slave PTY, acquiring it as the controlling terminal
+@@ -537,10 +560,12 @@
+ 		/* Start a new session and become process-group leader. */
+ 		setsid();
+ 		setpgid(0, 0);
+-
++		
++		int keep_fd = _vte_pty_keep_fd(env_add);
+ 		/* Close all other descriptors. */
+ 		for (i = 0; i < sysconf(_SC_OPEN_MAX); i++) {
+ 			if ((i != fd) &&
++			    (i != keep_fd) && 
+ 			    (i != ready_b[0]) &&
+ 			    (i != ready_a[1])) {
+ 				close(i);
