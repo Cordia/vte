@@ -1,0 +1,298 @@
+diff -rup orig-vte-0.12.0/src/vte-private.h vte-0.12.0/src/vte-private.h
+--- orig-vte-0.12.0/src/vte-private.h	2006-03-08 12:31:13.000000000 -0800
++++ vte-0.12.0/src/vte-private.h	2006-03-26 18:18:10.000000000 -0800
+@@ -56,16 +56,17 @@ G_BEGIN_DECLS
+ #define VTE_PAD_WIDTH			1
+ #define VTE_TAB_WIDTH			8
+ #define VTE_LINE_WIDTH			1
+-#define VTE_COLOR_SET_SIZE		8
++#define VTE_LEGACY_COLOR_SET_SIZE	8
+ #define VTE_COLOR_PLAIN_OFFSET		0
+ #define VTE_COLOR_BRIGHT_OFFSET		8
+ #define VTE_COLOR_DIM_OFFSET		16
+-#define VTE_DEF_FG			24
+-#define VTE_DEF_BG			25
+-#define VTE_BOLD_FG			26
+-#define VTE_DIM_FG			27
+-#define VTE_DEF_HL			28
+-#define VTE_CUR_BG			29
++#define VTE_DEF_FG			256
++#define VTE_DEF_BG			257
++#define VTE_BOLD_FG			258
++#define VTE_DIM_FG			259
++#define VTE_DEF_HL                      260
++#define VTE_CUR_BG			261
++
+ #define VTE_SATURATION_MAX		10000
+ #define VTE_SCROLLBACK_MIN		100
+ #define VTE_DEFAULT_CURSOR		GDK_XTERM
+@@ -90,13 +91,13 @@ G_BEGIN_DECLS
+  * includes any supported visible attributes. */
+ struct vte_charcell {
+ 	gunichar c;		/* The Unicode character. */
+-	guint32 columns: 11;	/* Number of visible columns (as determined
++	guint32 columns: 3;	/* Number of visible columns (as determined
+ 				   by g_unicode_iswide(c)).  Use as many bits
+ 				   as possible without making this structure
+ 				   grow any larger. */
+ 	guint32 fragment: 1;	/* The nth fragment of a wide character. */
+-	guint32 fore: 5;	/* Indices in the color palette for the */
+-	guint32 back: 5;	/* foreground and background of the cell. */
++	guint32 fore: 9;	/* Indices in the color palette for the */
++	guint32 back: 9;	/* foreground and background of the cell. */
+ 	guint32 standout: 1;	/* Single-bit attributes. */
+ 	guint32 underline: 1;
+ 	guint32 strikethrough: 1;
+diff -rup orig-vte-0.12.0/src/vte.c vte-0.12.0/src/vte.c
+--- orig-vte-0.12.0/src/vte.c	2006-03-12 19:29:31.000000000 -0800
++++ vte-0.12.0/src/vte.c	2006-03-26 18:20:15.000000000 -0800
+@@ -98,6 +98,10 @@ static gboolean vte_terminal_is_processi
+ 
+ static gpointer parent_class;
+ 
++/* Indexes in the "palette" color array for the dim colors.
++ * Only the first VTE_LEGACY_COLOR_SET_SIZE colors have dim versions.  */
++static const guchar corresponding_dim_index[] = {16,88,28,100,18,90,30,102};
++
+ /* Free a no-longer-used row data array. */
+ static void
+ vte_free_row_data(gpointer freeing, gpointer data)
+@@ -2036,7 +2040,8 @@ vte_terminal_set_colors(VteTerminal *ter
+ {
+ 	int i;
+ 	GdkColor color;
+-
++	int r, g, b;
++	
+ 	g_return_if_fail(VTE_IS_TERMINAL(terminal));
+ 
+ 	g_return_if_fail(palette_size >= 0);
+@@ -2058,64 +2063,8 @@ vte_terminal_set_colors(VteTerminal *ter
+ 
+ 	/* Initialize each item in the palette if we got any entries to work
+ 	 * with. */
+-	for (i = 0; (i < G_N_ELEMENTS(terminal->pvt->palette)); i++) {
+-		switch (i) {
+-		case VTE_DEF_FG:
+-			if (foreground != NULL) {
+-				color = *foreground;
+-			} else {
+-				color.red = 0xc000;
+-				color.blue = 0xc000;
+-				color.green = 0xc000;
+-			}
+-			break;
+-		case VTE_DEF_BG:
+-			if (background != NULL) {
+-				color = *background;
+-			} else {
+-				color.red = 0;
+-				color.blue = 0;
+-				color.green = 0;
+-			}
+-			break;
+-		case VTE_BOLD_FG:
+-			vte_terminal_generate_bold(&terminal->pvt->palette[VTE_DEF_FG],
+-						   &terminal->pvt->palette[VTE_DEF_BG],
+-						   1.8,
+-						   &color);
+-			break;
+-		case VTE_DIM_FG:
+-			vte_terminal_generate_bold(&terminal->pvt->palette[VTE_DEF_FG],
+-						   &terminal->pvt->palette[VTE_DEF_BG],
+-						   0.5,
+-						   &color);
+-			break;
+-		case VTE_DEF_HL:
+-			color.red = 0xc000;
+-			color.blue = 0xc000;
+-			color.green = 0xc000;
+-			break;
+-		case VTE_CUR_BG:
+-			color.red = 0x0000;
+-			color.blue = 0x0000;
+-			color.green = 0x0000;
+-			break;
+-		case 0 + 0:
+-		case 0 + 1:
+-		case 0 + 2:
+-		case 0 + 3:
+-		case 0 + 4:
+-		case 0 + 5:
+-		case 0 + 6:
+-		case 0 + 7:
+-		case 8 + 0:
+-		case 8 + 1:
+-		case 8 + 2:
+-		case 8 + 3:
+-		case 8 + 4:
+-		case 8 + 5:
+-		case 8 + 6:
+-		case 8 + 7:
++	for (i=r=g=b=0; (i < G_N_ELEMENTS(terminal->pvt->palette)); i++) {
++		if (i < 16) {
+ 			color.blue = (i & 4) ? 0xc000 : 0;
+ 			color.green = (i & 2) ? 0xc000 : 0;
+ 			color.red = (i & 1) ? 0xc000 : 0;
+@@ -2124,24 +2073,63 @@ vte_terminal_set_colors(VteTerminal *ter
+ 				color.green += 0x3fff;
+ 				color.red += 0x3fff;
+ 			}
+-			break;
+-		case 16 + 0:
+-		case 16 + 1:
+-		case 16 + 2:
+-		case 16 + 3:
+-		case 16 + 4:
+-		case 16 + 5:
+-		case 16 + 6:
+-		case 16 + 7:
+-			color.blue = (i & 4) ? 0x8000 : 0;
+-			color.green = (i & 2) ? 0x8000 : 0;
+-			color.red = (i & 1) ? 0x8000 : 0;
+-			break;
+-		default:
+-			g_assert_not_reached();
+-			break;
+ 		}
+-
++		else if (i < 232) {
++			int j = i - 16;
++			int r = j / 36, g = (j / 6) % 6, b = j % 6;
++			int red =   (r == 0) ? 0 : r * 40 + 55;
++			int green = (g == 0) ? 0 : g * 40 + 55;
++			int blue =  (b == 0) ? 0 : b * 40 + 55;
++			color.red   = red | red << 8  ;
++			color.green = green | green << 8;
++			color.blue  = blue | blue << 8;
++		} else if (i < 256) {
++			int shade = 8 + (i - 232) * 10;
++			color.red = color.green = color.blue = shade | shade << 8;
++		}
++		else switch (i) {
++			case VTE_DEF_BG:
++				if (background != NULL) {
++					color = *background;
++				} else {
++					color.red = 0;
++					color.blue = 0;
++					color.green = 0;
++				}
++				break;
++			case VTE_DEF_FG:
++				if (foreground != NULL) {
++					color = *foreground;
++				} else {
++					color.red = 0xc000;
++					color.blue = 0xc000;
++					color.green = 0xc000;
++				}
++				break;
++			case VTE_BOLD_FG:
++				vte_terminal_generate_bold(&terminal->pvt->palette[VTE_DEF_FG],
++							   &terminal->pvt->palette[VTE_DEF_BG],
++							   1.8,
++							   &color);
++				break;
++			case VTE_DIM_FG:
++				vte_terminal_generate_bold(&terminal->pvt->palette[VTE_DEF_FG],
++							   &terminal->pvt->palette[VTE_DEF_BG],
++							   0.5,
++							   &color);
++				break;
++			case VTE_DEF_HL:
++				color.red = 0xc000;
++				color.blue = 0xc000;
++				color.green = 0xc000;
++				break;
++			case VTE_CUR_BG:
++				color.red = 0x0000;
++				color.blue = 0x0000;
++				color.green = 0x0000;
++				break;
++			}
++		
+ 		/* Override from the supplied palette if there is one. */
+ 		if (i < palette_size) {
+ 			color = palette[i];
+@@ -7531,7 +7519,7 @@ vte_terminal_determine_colors(VteTermina
+ 		if (*fore == VTE_DEF_FG) {
+ 			*fore = VTE_BOLD_FG;
+ 		} else
+-		if ((*fore != VTE_DEF_BG) && (*fore < VTE_COLOR_SET_SIZE)) {
++		if ((*fore != VTE_DEF_BG) && (*fore < VTE_LEGACY_COLOR_SET_SIZE)) {
+ 			*fore += VTE_COLOR_BRIGHT_OFFSET;
+ 		}
+ 	}
+@@ -7539,12 +7527,12 @@ vte_terminal_determine_colors(VteTermina
+ 		if (*fore == VTE_DEF_FG) {
+ 			*fore = VTE_DIM_FG;
+ 		} else
+-		if ((*fore < VTE_COLOR_SET_SIZE)) {
+-			*fore += VTE_COLOR_DIM_OFFSET;
++		if ((*fore < VTE_LEGACY_COLOR_SET_SIZE)) {
++			*fore = corresponding_dim_index[*fore];;
+ 		}
+ 	}
+ 	if (cell && cell->standout) {
+-		if (*back < VTE_COLOR_SET_SIZE) {
++		if (*back < VTE_LEGACY_COLOR_SET_SIZE) {
+ 			*back += VTE_COLOR_BRIGHT_OFFSET;
+ 		}
+ 	}
+diff -rup orig-vte-0.12.0/src/vteseq.c vte-0.12.0/src/vteseq.c
+--- orig-vte-0.12.0/src/vteseq.c	2006-02-17 02:10:15.000000000 -0800
++++ vte-0.12.0/src/vteseq.c	2006-03-26 18:30:26.000000000 -0800
+@@ -2808,10 +2808,23 @@ vte_sequence_handler_character_attribute
+ 			terminal->pvt->screen->defaults.fore = param - 30;
+ 			break;
+ 		case 38:
+-			/* default foreground, underscore */
+-			terminal->pvt->screen->defaults.fore = VTE_DEF_FG;
+-			terminal->pvt->screen->defaults.underline = 1;
+-			break;
++ 		{
++ 			GValue *value1;
++ 			long param1;
++ 			/* The format looks like: ^[[38;5;COLORNUMBERm,
++ 			   so look for COLORNUMBER here. */
++ 			if ((i + 2) < params->n_values){
++ 				value1 = g_value_array_get_nth(params, i + 2);
++ 				if (!G_VALUE_HOLDS_LONG(value1)) {
++ 					break;
++ 				}
++ 				param1 = g_value_get_long(value1);
++ 				terminal->pvt->screen->defaults.fore = param1;
++ 				i += 2;
++ 			}
++ 			
++ 			break;
++ 		}
+ 		case 39:
+ 			/* default foreground, no underscore */
+ 			terminal->pvt->screen->defaults.fore = VTE_DEF_FG;
+@@ -2829,6 +2842,24 @@ vte_sequence_handler_character_attribute
+ 		case 47:
+ 			terminal->pvt->screen->defaults.back = param - 40;
+ 			break;
++  		case 48:
++  		{
++  			GValue *value1;
++  			long param1;
++  			/* The format looks like: ^[[48;5;COLORNUMBERm,
++  			   so look for COLORNUMBER here. */
++  			if ((i + 2) < params->n_values){
++  				value1 = g_value_array_get_nth(params, i + 2);
++  				if (!G_VALUE_HOLDS_LONG(value1)) {
++  					break;
++  				}
++  				param1 = g_value_get_long(value1);
++  				terminal->pvt->screen->defaults.back = param1;
++  				i += 2;
++  			}
++  			break;
++  			
++  		}
+ 		case 49:
+ 			/* default background */
+ 			terminal->pvt->screen->defaults.back = VTE_DEF_BG;

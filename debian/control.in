@@ -1,0 +1,67 @@
+Source: vte
+Section: libs
+Priority: optional
+Maintainer: Santtu Lakkala <inz@inz.fi>
+Standards-Version: 3.6.2
+Build-Depends: cdbs, debhelper (>= 3.4.4), libgtk2.0-dev (>= 2.6), gettext, libncurses5-dev, libxrender-dev, gnome-pkg-tools, gtk-doc-tools (>= 1.0), libfreetype6-dev (>= 2.0.2), intltool
+
+Package: libvte4
+Architecture: any
+Section: libs
+Depends: ${shlibs:Depends}, libvte-common (= ${Source-Version})
+Description: Terminal emulator widget for GTK+ 2.0 - runtime files
+ The VTE library inserts terminal capability strings into a trie, and then
+ uses it to determine if data received from a pseudo-terminal is a control
+ sequence or just random data. The sample program "interpret" illustrates
+ more or less what the widget sees after it filters incoming data.
+
+Package: libvte4-dbg
+Architecture: any
+Section: libs
+Depends: libvte4 (= ${Source-Version}), ${shlibs:Depends}, libvte-common (= ${Source-Version})
+Description: Terminal emulator widget for GTK+ 2.0 - debug runtime files
+ The VTE library inserts terminal capability strings into a trie, and then
+ uses it to determine if data received from a pseudo-terminal is a control
+ sequence or just random data. The sample program "interpret" illustrates
+ more or less what the widget sees after it filters incoming data.
+ .
+ This package includes debugging symbols.
+
+
+Package: libvte-dev
+Architecture: any
+Section: libdevel
+Depends: libvte4 (= ${Source-Version}), libgtk2.0-dev (>= 2.6.0), libncurses5-dev, libxrender-dev, libxft-dev, libfreetype6-dev, libatk1.0-dev, libpango1.0-dev, libglib2.0-dev, zlib1g-dev, libncurses5-dev | libncurses-dev, libx11-dev, libfontconfig1-dev
+Description: Terminal emulator widget for GTK+ 2.0 - development files
+ The VTE library inserts terminal capability strings into a trie, and then
+ uses it to determine if data received from a pseudo-terminal is a control
+ sequence or just random data. The sample program "interpret" illustrates
+ more or less what the widget sees after it filters incoming data.
+ .
+ This package contains development files for the VTE library.
+
+Package: libvte-common
+Architecture: all
+Section: libs
+Replaces: libvte2 (<= 0.5.1-2)
+Description: Terminal emulator widget for GTK+ 2.0 - common files
+ The VTE library inserts terminal capability strings into a trie, and then
+ uses it to determine if data received from a pseudo-terminal is a control
+ sequence or just random data. The sample program "interpret" illustrates
+ more or less what the widget sees after it filters incoming data.
+ .
+ This package contains internationalization files for the VTE library.
+
+Package: libvte-doc
+Architecture: all
+Section: doc
+Depends: 
+Description: Terminal emulator widget for GTK+ 2.0 - development files
+ The VTE library inserts terminal capability strings into a trie, and then
+ uses it to determine if data received from a pseudo-terminal is a control
+ sequence or just random data. The sample program "interpret" illustrates
+ more or less what the widget sees after it filters incoming data.
+ .
+ This package contains documentation files for the VTE library.
+
+
