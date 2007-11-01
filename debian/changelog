@@ -1,3 +1,10 @@
+vte (1:0.12.2-0mh3) bora; urgency=low
+
+  * Added patch to remove unwanted blinking
+  * Modified debian/rules to be more like in maemo
+
+ -- Joni Valtanen <jvaltane@kapsi.fi>  Thu, 01 Nov 2007 11:19:45 +0300
+
 vte (1:0.12.2-0mh2) bora; urgency=low
 
   * Move changes to debian/patches instead of directly modifying the
