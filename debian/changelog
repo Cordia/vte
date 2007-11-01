@@ -1,3 +1,9 @@
+vte (1:0.12.2-0mh4) bora; urgency=low
+
+  * Fixed gtk-doc issue with --enable-gtkdoc switch
+
+ -- Joni Valtanen <jvaltane@kapsi.fi>  Thu, 01 Nov 2007 16:42:05 +0300
+
 vte (1:0.12.2-0mh3) bora; urgency=low
 
   * Added patch to remove unwanted blinking

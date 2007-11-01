@@ -17,7 +17,7 @@ version := $(shell sed -n 's/Package: \(.*\)/\1/p' debian/control | head -n 1)
 ver := $(shell sed -n 's/.*(\(.*\)).*/\1/p' debian/changelog | head -n 1)
 
 debian/stamp-autotools-files:
-	./autogen.sh --prefix=/usr
+	./autogen.sh --prefix=/usr --enable-gtk-doc
 
 DEB_DH_STRIP_ARGS := --dbg-package=libvte4
 DEB_CONFIGURE_LIBEXECDIR := \$${prefix}/lib/${version}
