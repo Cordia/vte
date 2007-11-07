@@ -1,12 +1,19 @@
+vte (1:0.12.2-0mh5) bora; urgency=low
+
+  * Fixes: NB#71350, NB#74240
+
+ -- Joni Valtanen <jvaltane@kapsi.fi>  Thu, 07 Nov 2007 17:39:47 +0300
+
 vte (1:0.12.2-0mh4) bora; urgency=low
 
   * Fixed gtk-doc issue with --enable-gtkdoc switch
 
  -- Joni Valtanen <jvaltane@kapsi.fi>  Thu, 01 Nov 2007 16:42:05 +0300
 
-vte (1:0.12.2-0mh3) bora; urgency=low
+vte 
+(1:0.12.2-0mh3) bora; urgency=low
 
-  * Added patch to remove unwanted blinking
+  * Added patch to remove unwanted blinkingi. Fixes: #NB72067
   * Modified debian/rules to be more like in maemo
 
  -- Joni Valtanen <jvaltane@kapsi.fi>  Thu, 01 Nov 2007 11:19:45 +0300
