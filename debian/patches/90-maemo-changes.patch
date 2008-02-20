@@ -1,18 +1,6 @@
-diff -ur vte-0.12.2/src/keymap.c vte-trunk/src/keymap.c
---- vte-0.12.2/src/keymap.c	2006-02-02 05:43:16.000000000 +0200
-+++ vte-trunk/src/keymap.c	2007-05-07 16:53:33.000000000 +0300
-@@ -838,7 +838,7 @@
- 
- 	{GDK_KP_Space,		_vte_keymap_GDK_KP_Space},
- 	{GDK_KP_Tab,		_vte_keymap_GDK_KP_Tab},
--	{GDK_KP_Enter,		_vte_keymap_GDK_KP_Enter},
-+	{GDK_KP_Enter,		_vte_keymap_GDK_Return},
- 	{GDK_KP_F1,		_vte_keymap_GDK_KP_F1},
- 	{GDK_KP_F2,		_vte_keymap_GDK_KP_F2},
- 	{GDK_KP_F3,		_vte_keymap_GDK_KP_F3},
-diff -ur vte-0.12.2/src/Makefile.am vte-trunk/src/Makefile.am
---- vte-0.12.2/src/Makefile.am	2006-05-27 01:44:45.000000000 +0300
-+++ vte-trunk/src/Makefile.am	2007-05-07 16:57:11.000000000 +0300
+diff -ur vte-trunk/src/Makefile.am vte-patched/src/Makefile.am
+--- vte-trunk/src/Makefile.am	2008-02-20 11:50:51.000000000 +0200
++++ vte-patched/src/Makefile.am	2008-02-20 11:52:12.000000000 +0200
 @@ -21,7 +21,7 @@
  	unitable.JIS0212 \
  	unitable.KSX1001
@@ -22,30 +10,35 @@ diff -ur vte-0.12.2/src/Makefile.am vte-trunk/src/Makefile.am
  AM_LDFLAGS = @LDFLAGS@
  
  EXTRA_libvte_la_SOURCES = keysyms.c
-diff -ur vte-0.12.2/src/vtebg.c vte-trunk/src/vtebg.c
---- vte-0.12.2/src/vtebg.c	2006-03-15 13:02:59.000000000 +0200
-+++ vte-trunk/src/vtebg.c	2007-05-07 16:53:33.000000000 +0300
-@@ -191,6 +191,17 @@
- {
- 	return GDK_FILTER_CONTINUE;
- }
-+
-+static GdkPixmap *
-+vte_bg_root_pixmap(VteBg *bg)
-+{
-+	return NULL;
-+}
-+
-+static void
-+_vte_bg_display_sync(VteBg *bg)
-+{
-+}
- #endif
+diff -ur vte-trunk/src/keymap.c vte-patched/src/keymap.c
+--- vte-trunk/src/keymap.c	2008-02-20 11:50:51.000000000 +0200
++++ vte-patched/src/keymap.c	2008-02-20 11:52:12.000000000 +0200
+@@ -838,7 +838,7 @@
  
- static void
-diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
---- vte-0.12.2/src/vte.c	2006-04-27 04:08:33.000000000 +0300
-+++ vte-trunk/src/vte.c	2007-05-14 11:09:44.000000000 +0300
+ 	{GDK_KP_Space,		_vte_keymap_GDK_KP_Space},
+ 	{GDK_KP_Tab,		_vte_keymap_GDK_KP_Tab},
+-	{GDK_KP_Enter,		_vte_keymap_GDK_KP_Enter},
++	{GDK_KP_Enter,		_vte_keymap_GDK_Return},
+ 	{GDK_KP_F1,		_vte_keymap_GDK_KP_F1},
+ 	{GDK_KP_F2,		_vte_keymap_GDK_KP_F2},
+ 	{GDK_KP_F3,		_vte_keymap_GDK_KP_F3},
+diff -ur vte-trunk/src/vte-private.h vte-patched/src/vte-private.h
+--- vte-trunk/src/vte-private.h	2008-02-20 11:50:51.000000000 +0200
++++ vte-patched/src/vte-private.h	2008-02-20 11:52:12.000000000 +0200
+@@ -344,6 +344,10 @@
+ 
+ 	/* Obscured? state. */
+ 	GdkVisibilityState visibility_state;
++
++#ifdef MAEMO_CHANGES
++	gboolean ctrlify;
++#endif
+ };
+ 
+ 
+diff -ur vte-trunk/src/vte.c vte-patched/src/vte.c
+--- vte-trunk/src/vte.c	2008-02-20 11:50:51.000000000 +0200
++++ vte-patched/src/vte.c	2008-02-20 11:53:43.000000000 +0200
 @@ -53,6 +53,10 @@
  typedef gunichar wint_t;
  #endif
@@ -240,7 +233,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  static void
  vte_terminal_im_commit(GtkIMContext *im_context, gchar *text, gpointer data)
  {
-@@ -3610,6 +3747,28 @@
+@@ -3610,6 +3747,30 @@
  	}
  #endif
  	terminal = VTE_TERMINAL(data);
@@ -257,6 +250,8 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
 +			event.keyval = keyval;
 +			event.state = GDK_CONTROL_MASK;
 +			event.string = text;
++			event.group = 3;
++			event.window = GTK_WIDGET (terminal)->window;
 +			vte_terminal_key_press(GTK_WIDGET(terminal), &event);
 +			event.type = GDK_KEY_RELEASE;
 +			vte_terminal_key_release(GTK_WIDGET(terminal), &event);
@@ -269,7 +264,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	vte_terminal_feed_child_using_modes(terminal, text, -1);
  	/* Committed text was committed because the user pressed a key, so
  	 * we need to obey the scroll-on-keystroke setting. */
-@@ -4051,6 +4210,36 @@
+@@ -4051,6 +4212,36 @@
  				}
  			}
  			break;
@@ -306,7 +301,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  		default:
  			break;
  		}
-@@ -4134,7 +4323,7 @@
+@@ -4134,7 +4325,7 @@
  		/* If the key maps to characters, send them to the child. */
  		if (special != NULL) {
  			termcap = terminal->pvt->termcap;
@@ -315,7 +310,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  			normal = _vte_termcap_find_string_length(termcap,
  								 tterm,
  								 special,
-@@ -5778,6 +5967,18 @@
+@@ -5778,6 +5969,18 @@
  
  	g_assert(VTE_IS_TERMINAL(widget));
  	terminal = VTE_TERMINAL(widget);
@@ -334,7 +329,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	height = terminal->char_height;
  	width = terminal->char_width;
  	delta = terminal->pvt->screen->scroll_delta;
-@@ -5963,6 +6164,18 @@
+@@ -5963,6 +6166,18 @@
  
  	g_assert(VTE_IS_TERMINAL(widget));
  	terminal = VTE_TERMINAL(widget);
@@ -353,7 +348,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	_vte_terminal_set_pointer_visible(terminal, TRUE);
  
  	event_mode = terminal->pvt->mouse_send_xy_on_click ||
-@@ -6052,6 +6265,18 @@
+@@ -6052,6 +6267,18 @@
  	}
  #endif
  	terminal = VTE_TERMINAL(widget);
@@ -372,7 +367,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	GTK_WIDGET_SET_FLAGS(widget, GTK_HAS_FOCUS);
  	/* Read the keyboard modifiers, though they're probably garbage. */
  	if (gdk_event_get_state((GdkEvent*)event, &modifiers)) {
-@@ -6083,6 +6308,18 @@
+@@ -6083,6 +6310,18 @@
  	}
  #endif
  	terminal = VTE_TERMINAL(widget);
@@ -391,7 +386,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	GTK_WIDGET_UNSET_FLAGS(widget, GTK_HAS_FOCUS);
  	/* Read the keyboard modifiers, though they're probably garbage. */
  	if (gdk_event_get_state((GdkEvent*)event, &modifiers)) {
-@@ -6845,6 +7082,10 @@
+@@ -6845,6 +7084,10 @@
  	/* Assume we're visible unless we're told otherwise. */
  	pvt->visibility_state = GDK_VISIBILITY_UNOBSCURED;
  
@@ -402,7 +397,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	/* Listen for hierarchy change notifications. */
  	g_signal_connect(G_OBJECT(terminal), "hierarchy-changed",
  			 G_CALLBACK(vte_terminal_hierarchy_changed),
-@@ -7483,8 +7724,32 @@
+@@ -7483,8 +7726,32 @@
  	terminal->pvt->im_context = gtk_im_multicontext_new();
  	gtk_im_context_set_client_window(terminal->pvt->im_context,
  					 widget->window);
@@ -435,7 +430,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	g_signal_connect(G_OBJECT(terminal->pvt->im_context), "preedit-start",
  			 GTK_SIGNAL_FUNC(vte_terminal_im_preedit_start),
  			 terminal);
-@@ -7494,7 +7759,7 @@
+@@ -7494,7 +7761,7 @@
  	g_signal_connect(G_OBJECT(terminal->pvt->im_context), "preedit-end",
  			 GTK_SIGNAL_FUNC(vte_terminal_im_preedit_end),
  			 terminal);
@@ -444,7 +439,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  
  	/* Clear modifiers. */
  	terminal->pvt->modifiers = 0;
-@@ -9569,6 +9834,10 @@
+@@ -9569,6 +9836,10 @@
  	parent_class = g_type_class_peek_parent (klass);
  	/* Override some of the default handlers. */
  	gobject_class->finalize = vte_terminal_finalize;
@@ -455,7 +450,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  	widget_class->realize = vte_terminal_realize;
  	widget_class->scroll_event = vte_terminal_scroll;
  	widget_class->expose_event = vte_terminal_expose;
-@@ -9863,6 +10132,16 @@
+@@ -9863,6 +10134,16 @@
  			     _vte_marshal_VOID__INT,
  			     G_TYPE_NONE, 1, G_TYPE_INT);
  
@@ -472,7 +467,7 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
  #ifdef VTE_DEBUG
  	/* Turn on debugging if we were asked to. */
  	if (getenv("VTE_DEBUG_FLAGS") != NULL) {
-@@ -11363,3 +11642,35 @@
+@@ -11363,3 +11644,35 @@
  
  	return FALSE;
   }
@@ -508,17 +503,25 @@ diff -ur vte-0.12.2/src/vte.c vte-trunk/src/vte.c
 +	}
 +}
 +#endif
-diff -ur vte-0.12.2/src/vte-private.h vte-trunk/src/vte-private.h
---- vte-0.12.2/src/vte-private.h	2006-03-08 22:31:13.000000000 +0200
-+++ vte-trunk/src/vte-private.h	2007-05-14 11:07:42.000000000 +0300
-@@ -344,6 +344,10 @@
- 
- 	/* Obscured? state. */
- 	GdkVisibilityState visibility_state;
+Only in vte-patched/src: vte.c~
+diff -ur vte-trunk/src/vtebg.c vte-patched/src/vtebg.c
+--- vte-trunk/src/vtebg.c	2008-02-20 11:50:51.000000000 +0200
++++ vte-patched/src/vtebg.c	2008-02-20 11:52:12.000000000 +0200
+@@ -191,6 +191,17 @@
+ {
+ 	return GDK_FILTER_CONTINUE;
+ }
 +
-+#ifdef MAEMO_CHANGES
-+	gboolean ctrlify;
-+#endif
- };
++static GdkPixmap *
++vte_bg_root_pixmap(VteBg *bg)
++{
++	return NULL;
++}
++
++static void
++_vte_bg_display_sync(VteBg *bg)
++{
++}
+ #endif
  
- 
+ static void
