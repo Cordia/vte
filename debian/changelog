@@ -1,3 +1,9 @@
+vte (1:0.12.2-0mh6) bora; urgency=low
+
+  * Some fixes to maemo-changes patch.
+
+ -- Joni Valtanen <jvaltane@kapsi.fi>  Wed, 20 Feb 2008 12:08:05 +0300
+
 vte (1:0.12.2-0mh5) bora; urgency=low
 
   * Fixes: NB#71350, NB#74240
@@ -13,7 +19,7 @@ vte (1:0.12.2-0mh4) bora; urgency=low
 vte 
 (1:0.12.2-0mh3) bora; urgency=low
 
-  * Added patch to remove unwanted blinkingi. Fixes: #NB72067
+  * Added patch to remove unwanted blinking. Fixes: #NB72067
   * Modified debian/rules to be more like in maemo
 
  -- Joni Valtanen <jvaltane@kapsi.fi>  Thu, 01 Nov 2007 11:19:45 +0300
