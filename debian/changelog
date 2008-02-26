@@ -1,3 +1,9 @@
+vte (1:0.12.2-0mh7) bora; urgency=low
+
+  * Some fixes to this file (debian/changelog).
+
+ -- Joni Valtanen <jvaltane@kapsi.fi>  Tue, 26 Feb 2008 09:23:23 +0300
+
 vte (1:0.12.2-0mh6) bora; urgency=low
 
   * Some fixes to maemo-changes patch.
@@ -6,7 +12,7 @@ vte (1:0.12.2-0mh6) bora; urgency=low
 
 vte (1:0.12.2-0mh5) bora; urgency=low
 
-  * Fixes: NB#71350, NB#74240
+  * Fixes: NB#71350
 
  -- Joni Valtanen <jvaltane@kapsi.fi>  Thu, 07 Nov 2007 17:39:47 +0300
 
