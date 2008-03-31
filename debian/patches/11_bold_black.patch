@@ -1,0 +1,13 @@
+Index: src/vte.c
+===================================================================
+--- src/vte.c	(revision 77)
++++ src/vte.c	(working copy)
+@@ -2120,7 +2120,7 @@
+ 			color.blue = (i & 4) ? 0xc000 : 0;
+ 			color.green = (i & 2) ? 0xc000 : 0;
+ 			color.red = (i & 1) ? 0xc000 : 0;
+-			if (i > 8) {
++			if (i > 7) {
+ 				color.blue += 0x3fff;
+ 				color.green += 0x3fff;
+ 				color.red += 0x3fff;
