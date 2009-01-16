@@ -27,12 +27,18 @@
 #include <term.h>
 #define HAVE_CURSES
 #else
+#ifdef HAVE_NCURSES_CURSES
+#include <ncurses/curses.h>
+#include <ncurses/term.h>
+#define HAVE_CURSES
+#else
 #ifdef HAVE_CURSES
 #include <curses.h>
 #include <term.h>
 #else
 #ifdef HAVE_TERMCAP
 #include <termcap.h>
+#endif
 #endif
 #endif
 #endif
@@ -175,7 +181,7 @@ static void inschar(unsigned char t);
 static void dokbdchar(unsigned char t);
 static void displaystatus(void);
 
-static void cleanupexit(int n, unsigned char *error) {
+static void cleanupexit(int n, const char *error) {
   normal();
   fullscroll();
   gotoxy(0, nlines-1);
@@ -758,7 +764,8 @@ static void inschar(unsigned char t) {
     } else {
       tmp=input+inputlast;
       while (tmp>=input+inputofs+inputcursor) {
-	*(tmp+1)=(*tmp--);
+	*(tmp+1)=(*tmp);	
+	tmp--;	
       }
       input[inputofs+(inputcursor++)]=t;
       inputlast++;
@@ -854,7 +861,8 @@ static void dokbdchar(unsigned char t) {
       modify();
       tmp=input+inputcursor+inputofs;
       while (tmp<input+inputlast) {
-	*(tmp-1)=(*tmp++);
+	*(tmp-1)=(*tmp);
+	tmp++;
       }
       input[--inputlast]='\0';
       gotoxy(--inputcursor, yinput);
@@ -866,7 +874,8 @@ static void dokbdchar(unsigned char t) {
       modify();
       tmp=input+inputcursor+inputofs+1;
       while (tmp<input+inputlast) {
-	*(tmp-1)=(*tmp++);
+	*(tmp-1)=(*tmp);
+	tmp++;
       }
       input[--inputlast]='\0';
       gotoxy(inputcursor, yinput);
@@ -976,7 +985,7 @@ static void dokbdchar(unsigned char t) {
   quote=0;
 }
 
-static void barf(unsigned char *m) {
+static void barf(const char *m) {
   fprintf(stderr, "%s\n", m);
   exit(1);
 }

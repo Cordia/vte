@@ -21,7 +21,6 @@
 #ifndef vte_termcap_h_included
 #define vte_termcap_h_included
 
-#ident "$Id: vtetc.h 1152 2005-03-14 14:43:47Z kmaraas $"
 
 #include <glib.h>
 
@@ -30,7 +29,7 @@ G_BEGIN_DECLS
 struct _vte_termcap;
 
 /* Create a new termcap structure. */
-struct _vte_termcap *_vte_termcap_new(char *filename);
+struct _vte_termcap *_vte_termcap_new(const char *filename);
 
 /* Free a termcap structure. */
 void _vte_termcap_free(struct _vte_termcap *termcap);

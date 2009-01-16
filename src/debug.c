@@ -16,10 +16,8 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: debug.c 1219 2006-02-03 13:27:27Z behdad $"
 #include "../config.h"
 #include <glib.h>
-#include <stdio.h>
 #include "debug.h"
 
 static VteDebugFlags _vte_debug_flags = 0;
@@ -41,6 +39,9 @@ _vte_debug_parse_string(const char *string)
 			} else
 			if (g_ascii_strcasecmp(flags[i], "IO") == 0) {
 				_vte_debug_flags |= VTE_DEBUG_IO;
+			} else
+			if (g_ascii_strcasecmp(flags[i], "ADJ") == 0) {
+				_vte_debug_flags |= VTE_DEBUG_ADJ;
 			} else
 			if (g_ascii_strcasecmp(flags[i], "UPDATES") == 0) {
 				_vte_debug_flags |= VTE_DEBUG_UPDATES;
@@ -77,6 +78,21 @@ _vte_debug_parse_string(const char *string)
 			} else
 			if (g_ascii_strcasecmp(flags[i], "TRIE") == 0) {
 				_vte_debug_flags |= VTE_DEBUG_TRIE;
+			} else
+			if (g_ascii_strcasecmp(flags[i], "WORK") == 0) {
+				_vte_debug_flags |= VTE_DEBUG_WORK;
+			} else
+			if (g_ascii_strcasecmp(flags[i], "CELLS") == 0) {
+				_vte_debug_flags |= VTE_DEBUG_CELLS;
+			} else
+			if (g_ascii_strcasecmp(flags[i], "TIMEOUT") == 0) {
+				_vte_debug_flags |= VTE_DEBUG_TIMEOUT;
+			} else
+			if (g_ascii_strcasecmp(flags[i], "DRAW") == 0) {
+				_vte_debug_flags |= VTE_DEBUG_DRAW;
+			} else
+			if (g_ascii_strcasecmp(flags[i], "ALLY") == 0) {
+				_vte_debug_flags |= VTE_DEBUG_ALLY;
 			}
 		}
 		g_strfreev(flags);
@@ -86,8 +102,5 @@ _vte_debug_parse_string(const char *string)
 gboolean
 _vte_debug_on(VteDebugFlags flags)
 {
-#ifdef VTE_DEBUG
-	fflush(NULL);
-#endif
 	return (_vte_debug_flags & flags) == flags;
 }

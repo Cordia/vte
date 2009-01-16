@@ -19,7 +19,6 @@
 #ifndef vte_vteaccess_h_included
 #define vte_vteaccess_h_included
 
-#ident "$Id: vteaccess.h 815 2003-04-24 03:03:51Z nalin $"
 
 #include <glib.h>
 #include <gtk/gtk.h>

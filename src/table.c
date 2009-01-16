@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: table.c 1163 2005-04-29 20:17:41Z kmaraas $"
 #include "../config.h"
 #include <sys/types.h>
 #include <assert.h>
@@ -31,18 +30,16 @@
 #include "table.h"
 
 /* Table info. */
-#ifdef TABLE_MAIN
-#define VTE_TABLE_MAX_NUMERIC_DEPTH 5
-#else
-#define VTE_TABLE_MAX_NUMERIC_DEPTH 16
-#endif
 #define VTE_TABLE_MAX_LITERAL (128 + 32)
 #define _vte_table_map_literal(__c) \
 	(((__c) < (VTE_TABLE_MAX_LITERAL)) ? (__c) : 0)
 #define _vte_table_is_numeric(__c) \
 	(((__c) >= '0') && ((__c) <= '9'))
+#define _vte_table_is_numeric_list(__c) \
+	((((__c) >= '0') && ((__c) <= '9')) || (__c) == ';')
 
 struct _vte_table {
+	struct _vte_matcher_impl impl;
 	GQuark resultq;
 	const char *result;
 	unsigned char *original;
@@ -50,32 +47,113 @@ struct _vte_table {
 	int increment;
 	struct _vte_table *table_string;
 	struct _vte_table *table_number;
+	struct _vte_table *table_number_list;
 	struct _vte_table **table;
 };
 
 /* Argument info. */
 enum _vte_table_argtype {
-	_vte_table_arg_number,
+	_vte_table_arg_number=0,
 	_vte_table_arg_string,
 	_vte_table_arg_char
 };
 struct _vte_table_arginfo {
-	enum _vte_table_argtype type;
 	const gunichar *start;
-	gssize length;
+	struct _vte_table_arginfo *next;
+	guint type:2;
+	guint length:30;
 };
+#define MAX_STACK 16
+struct _vte_table_arginfo_head {
+	guint stack_allocated;
+	struct _vte_table_arginfo *list;
+	struct _vte_table_arginfo stack[MAX_STACK];
+};
+
+static void
+_vte_table_arginfo_head_init(struct _vte_table_arginfo_head *head)
+{
+	head->list = NULL;
+	head->stack_allocated = 0;
+}
+static inline struct _vte_table_arginfo*
+_vte_table_arginfo_alloc(struct _vte_table_arginfo_head *head)
+{
+	struct _vte_table_arginfo *info;
+	if (G_LIKELY (head->stack_allocated < G_N_ELEMENTS(head->stack))) {
+		info = &head->stack[head->stack_allocated++];
+	} else {
+		info = g_slice_new (struct _vte_table_arginfo);
+	}
+	info->next = head->list;
+	head->list = info;
+	return info;
+}
+static void
+_vte_table_arginfo_head_revert(struct _vte_table_arginfo_head *head, struct _vte_table_arginfo *last)
+{
+	struct _vte_table_arginfo *info;
+	info = head->list;
+	head->list = last->next;
+	if (last >= &head->stack[0] &&
+			last < &head->stack[G_N_ELEMENTS(head->stack)]){
+		head->stack_allocated = last - &head->stack[0];
+	}
+	do {
+		struct _vte_table_arginfo *next = info->next;
+		if (info >= &head->stack[0] &&
+				info < &head->stack[G_N_ELEMENTS(head->stack)]){
+			break;
+		}
+		g_slice_free(struct _vte_table_arginfo, info);
+		if (info == last) {
+			break;
+		}
+		info = next;
+	}while (TRUE);
+}
+static struct _vte_table_arginfo *
+_vte_table_arginfo_head_reverse(struct _vte_table_arginfo_head *head)
+{
+	struct _vte_table_arginfo *prev = NULL;
+	while (head->list) {
+		struct _vte_table_arginfo *next = head->list->next;
+
+		head->list->next = prev;
+
+		prev = head->list;
+		head->list = next;
+	}
+	return prev;
+}
+static void
+_vte_table_arginfo_head_finalize(struct _vte_table_arginfo_head *head)
+{
+	struct _vte_table_arginfo *info, *next;
+	for (info = head->list; info != NULL; info = next) {
+		next = info->next;
+		if (info >= &head->stack[0] &&
+				info < &head->stack[G_N_ELEMENTS(head->stack)]){
+			continue;
+		}
+		g_slice_free(struct _vte_table_arginfo, info);
+	}
+}
 
 /* Create an empty, one-level table. */
 struct _vte_table *
 _vte_table_new(void)
 {
-	return g_malloc0(sizeof(struct _vte_table));
+	struct _vte_table * ret;
+	ret = g_slice_new0(struct _vte_table);
+	ret->impl.klass = &_vte_matcher_table;
+	return ret;
 }
 
-struct _vte_table **
+static struct _vte_table **
 _vte_table_literal_new(void)
 {
-	return g_malloc0(sizeof(struct _vte_table *) * VTE_TABLE_MAX_LITERAL);
+	return g_new0(struct _vte_table *, VTE_TABLE_MAX_LITERAL);
 }
 
 /* Free a table. */
@@ -87,7 +165,6 @@ _vte_table_free(struct _vte_table *table)
 		for (i = 0; i < VTE_TABLE_MAX_LITERAL; i++) {
 			if (table->table[i] != NULL) {
 				_vte_table_free(table->table[i]);
-				table->table[i] = NULL;
 			}
 		}
 		g_free(table->table);
@@ -98,17 +175,18 @@ _vte_table_free(struct _vte_table *table)
 	if (table->table_number != NULL) {
 		_vte_table_free(table->table_number);
 	}
+	if (table->table_number_list != NULL) {
+		_vte_table_free(table->table_number_list);
+	}
 	if (table->original_length == 0) {
 		g_assert(table->original == NULL);
 	} else {
 		g_assert(table->original != NULL);
 	}
 	if (table->original != NULL) {
-		table->original_length = 0;
 		g_free(table->original);
-		table->original = NULL;
 	}
-	g_free(table);
+	g_slice_free(struct _vte_table, table);
 }
 
 /* Add a string to the tree with the given increment value. */
@@ -131,22 +209,18 @@ _vte_table_addi(struct _vte_table *table,
 
 	/* If this is the terminal node, set the result. */
 	if (length == 0) {
-#ifdef VTE_DEBUG
-		if (_vte_debug_on(VTE_DEBUG_PARSE)) {
-			if (table->result != NULL) {
+		_VTE_DEBUG_IF(VTE_DEBUG_PARSE) {
+			if (table->result != NULL)
 				g_warning("`%s' and `%s' are indistinguishable",
-					  table->result, result);
-			}
+						table->result, result);
 		}
-#endif
 		table->resultq = g_quark_from_string(result);
 		table->result = g_quark_to_string(table->resultq);
 		if (table->original != NULL) {
 			g_free(table->original);
 		}
-		table->original = g_malloc(original_length);
+		table->original = g_memdup(original, original_length);
 		table->original_length = original_length;
-		memcpy(table->original, original, original_length);
 		table->increment = inc;
 		return;
 	}
@@ -182,16 +256,17 @@ _vte_table_addi(struct _vte_table *table,
 		/* Handle variable-length parameters. */
 		if ((pattern[1] == 'm') ||
 		    (pattern[1] == 'M')) {
-			int i, j, initial;
-			GByteArray *b;
 			/* Build the "new" original using the initial portion
 			 * of the original string and what's left after this
 			 * specifier. */
-			initial = original_length - length;
-			b = g_byte_array_new();
 			if (pattern[1] == 'm') {
+				int initial;
+				GByteArray *b;
+
+				initial = original_length - length;
 				/* 0 args; we use 'M' to signal that zero is
 				 * not allowed.  */
+				b = g_byte_array_new();
 				g_byte_array_set_size(b, 0);
 				g_byte_array_append(b, original, initial);
 				g_byte_array_append(b, pattern + 2, length - 2);
@@ -199,25 +274,19 @@ _vte_table_addi(struct _vte_table *table,
 						b->data + initial,
 						b->len - initial,
 						result, quark, inc);
+				g_byte_array_free(b, TRUE);
 			}
-			for (i = 1;
-			     i <= VTE_TABLE_MAX_NUMERIC_DEPTH;
-			     i++) {
-				g_byte_array_set_size(b, 0);
-				g_byte_array_append(b, original, initial);
-				for (j = 1; j <= i; j++) {
-					if (j > 1) {
-						g_byte_array_append(b, ";", 1);
-					}
-					g_byte_array_append(b, "%d", 2);
-				}
-				g_byte_array_append(b, pattern + 2, length - 2);
-				_vte_table_addi(table,
-						b->data, b->len,
-						b->data + initial, b->len - initial,
-						result, quark, inc);
+			/* Create a new subtable. */
+			if (table->table_number_list == NULL) {
+				subtable = _vte_table_new();
+				table->table_number_list = subtable;
+			} else {
+				subtable = table->table_number_list;
 			}
-			g_byte_array_free(b, TRUE);
+			/* Add the rest of the string to the subtable. */
+			_vte_table_addi(subtable, original, original_length,
+					pattern + 2, length - 2,
+					result, quark, inc);
 			return;
 		}
 
@@ -319,7 +388,7 @@ _vte_table_addi(struct _vte_table *table,
 	} else {
 		subtable = table->table[check];
 	}
-	
+
 	/* Add the rest of the string to the subtable. */
 	_vte_table_addi(subtable, original, original_length,
 			pattern + 1, length - 1,
@@ -343,7 +412,7 @@ _vte_table_matchi(struct _vte_table *table,
 		  const gunichar *candidate, gssize length,
 		  const char **res, const gunichar **consumed, GQuark *quark,
 		  unsigned char **original, gssize *original_length,
-		  GList **params)
+		  struct _vte_table_arginfo_head *params)
 {
 	int i = 0;
 	struct _vte_table *subtable = NULL;
@@ -361,7 +430,7 @@ _vte_table_matchi(struct _vte_table *table,
 
 	/* If we're out of data, but we still have children, return the empty
 	 * string. */
-	if ((length == 0) && (table != NULL)) {
+	if (G_UNLIKELY (length == 0)) {
 		*consumed = candidate;
 		return "";
 	}
@@ -377,15 +446,46 @@ _vte_table_matchi(struct _vte_table *table,
 			}
 		}
 		/* Save the parameter info. */
-		arginfo = g_malloc(sizeof(struct _vte_table_arginfo));
+		arginfo = _vte_table_arginfo_alloc(params);
 		arginfo->type = _vte_table_arg_string;
 		arginfo->start = candidate;
 		arginfo->length = i;
-		*params = g_list_append(*params, arginfo);
 		/* Continue. */
 		return _vte_table_matchi(subtable, candidate + i, length - i,
 					 res, consumed, quark,
 					 original, original_length, params);
+	}
+
+	/* Check if this could be a list. */
+	if ((_vte_table_is_numeric_list(candidate[0])) &&
+	    (table->table_number_list != NULL)) {
+		const char *local_result;
+
+		subtable = table->table_number_list;
+		/* Iterate over all numeric characters and ';'. */
+		for (i = 1; i < length; i++) {
+			if (!_vte_table_is_numeric_list(candidate[i])) {
+				break;
+			}
+		}
+		/* Save the parameter info. */
+		arginfo = _vte_table_arginfo_alloc(params);
+		arginfo->type = _vte_table_arg_number;
+		arginfo->start = candidate;
+		arginfo->length = i;
+
+		/* Try and continue. */
+		local_result = _vte_table_matchi(subtable,
+					 candidate + i, length - i,
+					 res, consumed, quark,
+					 original, original_length,
+					 params);
+		if (local_result != NULL) {
+			return local_result;
+		}
+		_vte_table_arginfo_head_revert (params, arginfo);
+
+		/* try again */
 	}
 
 	/* Check if this could be a number. */
@@ -393,17 +493,16 @@ _vte_table_matchi(struct _vte_table *table,
 	    (table->table_number != NULL)) {
 		subtable = table->table_number;
 		/* Iterate over all numeric characters. */
-		for (i = 0; i < length; i++) {
+		for (i = 1; i < length; i++) {
 			if (!_vte_table_is_numeric(candidate[i])) {
 				break;
 			}
 		}
 		/* Save the parameter info. */
-		arginfo = g_malloc(sizeof(struct _vte_table_arginfo));
+		arginfo = _vte_table_arginfo_alloc(params);
 		arginfo->type = _vte_table_arg_number;
 		arginfo->start = candidate;
 		arginfo->length = i;
-		*params = g_list_append(*params, arginfo);
 		/* Continue. */
 		return _vte_table_matchi(subtable, candidate + i, length - i,
 					 res, consumed, quark,
@@ -415,11 +514,10 @@ _vte_table_matchi(struct _vte_table *table,
 	    (table->table[_vte_table_map_literal(candidate[0])] != NULL)) {
 		subtable = table->table[_vte_table_map_literal(candidate[0])];
 		/* Save the parameter info. */
-		arginfo = g_malloc(sizeof(struct _vte_table_arginfo));
+		arginfo = _vte_table_arginfo_alloc(params);
 		arginfo->type = _vte_table_arg_char;
 		arginfo->start = candidate;
 		arginfo->length = 1;
-		*params = g_list_append(*params, arginfo);
 		/* Continue. */
 		return _vte_table_matchi(subtable, candidate + 1, length - 1,
 					 res, consumed, quark,
@@ -437,40 +535,24 @@ _vte_table_extract_numbers(GValueArray **array,
 			   struct _vte_table_arginfo *arginfo, long increment)
 {
 	GValue value = {0,};
-	GString *tmp;
-	char **vals;
-	int i, j;
-	long total;
+	gssize i;
 
-	tmp = g_string_new("");
-	for (i = 0; i < arginfo->length; i++) {
-		tmp = g_string_append_unichar(tmp, arginfo->start[i]);
-	}
-
-	vals = g_strsplit(tmp->str, ";", -1);
-
-	if (vals != NULL) {
-		g_value_init(&value, G_TYPE_LONG);
-
-		for (i = 0; vals[i] != NULL; i++) {
-			if (*array == NULL) {
-				*array = g_value_array_new(1);
-			}
-			for (total = 0, j = 0; vals[i][j] != '\0'; j++) {
-				total *= 10;
-				total += g_unichar_digit_value(vals[i][j]) == -1 ?
-					 0 : g_unichar_digit_value(vals[i][j]);
-			}
-			g_value_set_long(&value, total);
-			g_value_array_append(*array, &value);
+	g_value_init(&value, G_TYPE_LONG);
+	i = 0;
+	do {
+		long total = 0;
+		for (; i < arginfo->length && arginfo->start[i] != ';'; i++) {
+			gint v = g_unichar_digit_value (arginfo->start[i]);
+			total *= 10;
+			total += v == -1 ?  0 : v;
 		}
-
-		g_strfreev(vals);
-
-		g_value_unset(&value);
-	}
-
-	g_string_free(tmp, TRUE);
+		if (G_UNLIKELY (*array == NULL)) {
+			*array = g_value_array_new(1);
+		}
+		g_value_set_long(&value, total);
+		g_value_array_append(*array, &value);
+	} while (i++ < arginfo->length);
+	g_value_unset(&value);
 }
 
 static void
@@ -479,18 +561,17 @@ _vte_table_extract_string(GValueArray **array,
 {
 	GValue value = {0,};
 	gunichar *ptr;
-	int i;
+	guint i;
 
-	ptr = g_malloc(sizeof(gunichar) * (arginfo->length + 1));
-	memcpy(ptr, arginfo->start, (arginfo->length * sizeof(gunichar)));
+	ptr = g_new(gunichar, arginfo->length + 1);
 	for (i = 0; i < arginfo->length; i++) {
-		ptr[i] &= ~(VTE_ISO2022_ENCODED_WIDTH_MASK);
+		ptr[i] = arginfo->start[i] & ~VTE_ISO2022_ENCODED_WIDTH_MASK;
 	}
-	ptr[arginfo->length] = '\0';
+	ptr[i] = '\0';
 	g_value_init(&value, G_TYPE_POINTER);
 	g_value_set_pointer(&value, ptr);
 
-	if (*array == NULL) {
+	if (G_UNLIKELY (*array == NULL)) {
 		*array = g_value_array_new(1);
 	}
 	g_value_array_append(*array, &value);
@@ -506,7 +587,7 @@ _vte_table_extract_char(GValueArray **array,
 	g_value_init(&value, G_TYPE_LONG);
 	g_value_set_long(&value, *(arginfo->start) - increment);
 
-	if (*array == NULL) {
+	if (G_UNLIKELY (*array == NULL)) {
 		*array = g_value_array_new(1);
 	}
 	g_value_array_append(*array, &value);
@@ -521,72 +602,74 @@ _vte_table_match(struct _vte_table *table,
 		 GQuark *quark, GValueArray **array)
 {
 	struct _vte_table *head;
-	const gunichar *dummy_consumed = NULL;
-	const char *dummy_res = NULL;
-	GQuark dummy_quark = 0;
-	GValueArray *dummy_array = NULL;
-	const char *ret = NULL;
-	unsigned char *original = NULL, *p = NULL;
+	const gunichar *dummy_consumed;
+	const char *dummy_res;
+	GQuark dummy_quark;
+	GValueArray *dummy_array;
+	const char *ret;
+	unsigned char *original, *p;
 	gssize original_length;
-	GList *params = NULL, *tmp;
 	long increment = 0;
 	int i;
+	struct _vte_table_arginfo_head params;
 	struct _vte_table_arginfo *arginfo;
 
 	/* Clean up extracted parameters. */
-	if (res == NULL) {
+	if (G_UNLIKELY (res == NULL)) {
 		res = &dummy_res;
 	}
 	*res = NULL;
-	if (consumed == NULL) {
+	if (G_UNLIKELY (consumed == NULL)) {
 		consumed = &dummy_consumed;
 	}
 	*consumed = candidate;
-	if (quark == NULL) {
+	if (G_UNLIKELY (quark == NULL)) {
 		quark = &dummy_quark;
 	}
 	*quark = 0;
-	if (array == NULL) {
+	if (G_UNLIKELY (array == NULL)) {
+		dummy_array = NULL;
 		array = &dummy_array;
 	}
-	*array = NULL;
 
 	/* Provide a fast path for the usual "not a sequence" cases. */
-	if (length == 0) {
-		return NULL;
-	}
-	if (candidate == NULL) {
+	if (G_LIKELY (length == 0 || candidate == NULL)) {
 		return NULL;
 	}
 
 	/* If there's no literal path, and no generic path, and the numeric
 	 * path isn't available, then it's not a sequence, either. */
-	if ((table->table == NULL) ||
-	    (table->table[_vte_table_map_literal(candidate[0])] == NULL)) {
+	if (table->table == NULL ||
+	    table->table[_vte_table_map_literal(candidate[0])] == NULL) {
 		if (table->table_string == NULL) {
-			if (!(_vte_table_is_numeric(candidate[0])) ||
-			    (table->table_number == NULL)) {
-				/* No match. */
-				return NULL;
+			if (table->table_number == NULL ||
+					!_vte_table_is_numeric(candidate[0])){
+				if (table->table_number_list == NULL ||
+					!_vte_table_is_numeric_list(candidate[0])){
+					/* No match. */
+					return NULL;
+				}
 			}
 		}
 	}
 
 	/* Check for a literal match. */
-	for (i = 0, head = table; (i < length) && (head != NULL); i++) {
+	for (i = 0, head = table; i < length && head != NULL; i++) {
 		if (head->table == NULL) {
 			head = NULL;
 		} else {
 			head = head->table[_vte_table_map_literal(candidate[i])];
 		}
 	}
-	if ((head != NULL) && (head->result != NULL)) {
+	if (head != NULL && head->result != NULL) {
 		/* Got a literal match. */
 		*consumed = candidate + i;
 		*res = head->result;
 		*quark = head->resultq;
 		return *res;
 	}
+
+	_vte_table_arginfo_head_init (&params);
 
 	/* Check for a pattern match. */
 	ret = _vte_table_matchi(table, candidate, length,
@@ -596,11 +679,11 @@ _vte_table_match(struct _vte_table *table,
 	*res = ret;
 
 	/* If we got a match, extract the parameters. */
-	if ((ret != NULL) && (strlen(ret) > 0) && (array != &dummy_array)) {
-		tmp = params;
+	if (ret != NULL && ret[0] != '\0' && array != &dummy_array) {
 		g_assert(original != NULL);
 		p = original;
-		while (p < original + original_length) {
+		arginfo = _vte_table_arginfo_head_reverse (&params);
+		do {
 			/* All of the interesting arguments begin with '%'. */
 			if (p[0] == '%') {
 				/* Handle an increment. */
@@ -610,61 +693,41 @@ _vte_table_match(struct _vte_table *table,
 					continue;
 				}
 				/* Handle an escaped '%'. */
-				if (p[1] == '%') {
-					tmp = g_list_next(tmp);
-					p += 2;
-					continue;
+				else if (p[1] == '%') {
 				}
 				/* Handle numeric parameters. */
-				if ((p[1] == 'd') ||
+				else if ((p[1] == 'd') ||
 				    (p[1] == '2') ||
 				    (p[1] == '3') ||
 				    (p[1] == 'm') ||
 				    (p[1] == 'M')) {
-					arginfo = tmp->data;
 					_vte_table_extract_numbers(array,
 								   arginfo,
 								   increment);
-					tmp = g_list_next(tmp);
-					p += 2;
-					continue;
+					p++;
 				}
 				/* Handle string parameters. */
-				if (p[1] == 's') {
-					arginfo = tmp->data;
+				else if (p[1] == 's') {
 					_vte_table_extract_string(array,
 								  arginfo);
-					tmp = g_list_next(tmp);
-					p += 2;
-					continue;
+					p++;
 				}
 				/* Handle a parameter character. */
-				if (p[1] == '+') {
-					arginfo = tmp->data;
+				else if (p[1] == '+') {
 					_vte_table_extract_char(array,
 								arginfo,
 								p[2]);
-					tmp = g_list_next(tmp);
-					p += 3;
-					continue;
+					p += 2;
+				} else {
+					g_assert_not_reached();
 				}
-				g_assert_not_reached();
-			} else {
-				/* Literal. */
-				tmp = g_list_next(tmp);
-				p++;
-				continue;
-			}
-		}
+			} /* else Literal. */
+			arginfo = arginfo->next;
+		} while (++p < original + original_length && arginfo);
 	}
 
 	/* Clean up extracted parameters. */
-	if (params != NULL) {
-		for (tmp = params; tmp != NULL; tmp = g_list_next(tmp)) {
-			g_free(tmp->data);
-		}
-		g_list_free(params);
-	}
+	_vte_table_arginfo_head_finalize (&params);
 
 	return ret;
 }
@@ -679,7 +742,7 @@ _vte_table_printi(struct _vte_table *table, const char *lead, int *count)
 
 	/* Result? */
 	if (table->result != NULL) {
-		fprintf(stderr, "%s = `%s'(%d)\n", lead,
+		g_printerr("%s = `%s'(%d)\n", lead,
 			table->result, table->increment);
 	}
 
@@ -720,7 +783,7 @@ _vte_table_print(struct _vte_table *table)
 {
 	int count = 0;
 	_vte_table_printi(table, "", &count);
-	fprintf(stderr, "%d nodes = %ld bytes.\n",
+	g_printerr("%d nodes = %ld bytes.\n",
 		count, (long) count * sizeof(struct _vte_table));
 }
 
@@ -733,7 +796,7 @@ escape(const char *p)
 	GString *ret;
 	int i;
 	guint8 check;
-	ret = g_string_new("");
+	ret = g_string_new(NULL);
 	for (i = 0; p[i] != '\0'; i++) {
 		tmp = NULL;
 		check = p[i];
@@ -851,10 +914,18 @@ main(int argc, char **argv)
 		printf("`%s' => `%s'", tmp, (result ? result : "(NULL)"));
 		g_free(tmp);
 		print_array(array);
-		printf(" (%d chars)\n", consumed ? consumed - candidate: 0);
+		printf(" (%d chars)\n", (int) (consumed ? consumed - candidate: 0));
 		g_free(candidate);
 	}
 	_vte_table_free(table);
 	return 0;
 }
 #endif
+
+const struct _vte_matcher_class _vte_matcher_table = {
+	(_vte_matcher_create_func)_vte_table_new,
+	(_vte_matcher_add_func)_vte_table_add,
+	(_vte_matcher_print_func)_vte_table_print,
+	(_vte_matcher_match_func)_vte_table_match,
+	(_vte_matcher_destroy_func)_vte_table_free
+};

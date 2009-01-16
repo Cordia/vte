@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vtepangox.c 1076 2004-04-20 05:16:56Z nalin $"
 
 #include "../config.h"
 
@@ -61,7 +60,7 @@ _vte_pango_x_create(struct _vte_draw *draw, GtkWidget *widget)
 {
 	struct _vte_pango_x_data *data;
 
-	draw->impl_data = g_malloc(sizeof(struct _vte_pango_x_data));
+	draw->impl_data = g_slice_new(struct _vte_pango_x_data);
 	data = (struct _vte_pango_x_data*) draw->impl_data;
 
 	data->color.red = 0;
@@ -82,33 +81,23 @@ _vte_pango_x_destroy(struct _vte_draw *draw)
 	struct _vte_pango_x_data *data;
 	data = (struct _vte_pango_x_data*) draw->impl_data;
 
-	data->scrollx = data->scrolly = 0;
-
-	if (GDK_IS_PIXMAP(data->pixmap)) {
-		g_object_unref(G_OBJECT(data->pixmap));
-		data->pixmap = NULL;
-		data->pixmapw = data->pixmaph = 0;
+	if (data->pixmap != NULL) {
+		g_object_unref(data->pixmap);
 	}
 	if (data->font != NULL) {
 		pango_font_description_free(data->font);
-		data->font = NULL;
 	}
-	if (PANGO_IS_LAYOUT(data->layout)) {
-		g_object_unref(G_OBJECT(data->layout));
-		data->layout = NULL;
+	if (data->layout != NULL) {
+		g_object_unref(data->layout);
 	}
-	if (GDK_IS_GC(data->gc)) {
-		g_object_unref(G_OBJECT(data->gc));
-		data->gc = NULL;
+	if (data->gc != NULL) {
+		g_object_unref(data->gc);
 	}
-	if (PANGO_IS_CONTEXT(data->ctx)) {
-		g_object_unref(G_OBJECT(data->ctx));
-		data->ctx = NULL;
+	if (data->ctx != NULL) {
+		g_object_unref(data->ctx);
 	}
 
-	memset(&data->color, 0, sizeof(data->color));
-
-	g_free(draw->impl_data);
+	g_slice_free(struct _vte_pango_x_data, draw->impl_data);
 }
 
 static GdkVisual *
@@ -134,22 +123,22 @@ _vte_pango_x_start(struct _vte_draw *draw)
 	data = (struct _vte_pango_x_data*) draw->impl_data;
 
 	display = gdk_x11_drawable_get_xdisplay(draw->widget->window);
-	if (PANGO_IS_CONTEXT(data->ctx)) {
-		g_object_unref(G_OBJECT(data->ctx));
+	if (data->ctx != NULL) {
+		g_object_unref(data->ctx);
 	}
 	data->ctx = pango_x_get_context(display);
 
-	if (PANGO_IS_LAYOUT(data->layout)) {
-		g_object_unref(G_OBJECT(data->layout));
+	if (data->layout != NULL) {
+		g_object_unref(data->layout);
 	}
 	data->layout = pango_layout_new(data->ctx);
 
-	if (data->font) {
+	if (data->font != NULL) {
 		pango_layout_set_font_description(data->layout, data->font);
 	}
 
-	if (GDK_IS_GC(data->gc)) {
-		g_object_unref(G_OBJECT(data->gc));
+	if (data->gc != NULL) {
+		g_object_unref(data->gc);
 	}
 	data->gc = gdk_gc_new(draw->widget->window);
 
@@ -173,24 +162,24 @@ _vte_pango_x_end(struct _vte_draw *draw)
 	data->x_offs = 0;
 	data->y_offs = 0;
 
-	if (PANGO_IS_LAYOUT(data->layout)) {
-		g_object_unref(G_OBJECT(data->layout));
+	if (data->layout != NULL) {
+		g_object_unref(data->layout);
 	}
 	data->layout = NULL;
 
-	if (GDK_IS_GC(data->gc)) {
-		g_object_unref(G_OBJECT(data->gc));
+	if (data->gc != NULL) {
+		g_object_unref(data->gc);
 	}
 	data->gc = NULL;
 
-	if (PANGO_IS_CONTEXT(data->ctx)) {
-		g_object_unref(G_OBJECT(data->ctx));
+	if (data->ctx != NULL) {
+		g_object_unref(data->ctx);
 	}
 	data->ctx = NULL;
 }
 
 static void
-_vte_pango_x_set_background_color(struct _vte_draw *draw, GdkColor *color)
+_vte_pango_x_set_background_color(struct _vte_draw *draw, GdkColor *color, guint16 opacity)
 {
 	struct _vte_pango_x_data *data;
 	data = (struct _vte_pango_x_data*) draw->impl_data;
@@ -207,20 +196,34 @@ _vte_pango_x_set_background_image(struct _vte_draw *draw,
 {
 	GdkPixmap *pixmap;
 	struct _vte_pango_x_data *data;
+	GdkScreen *screen;
+
+	screen = gtk_widget_get_screen (draw->widget);
 
 	data = (struct _vte_pango_x_data*) draw->impl_data;
-	pixmap = vte_bg_get_pixmap(vte_bg_get(), type, pixbuf, file,
+	pixmap = vte_bg_get_pixmap(vte_bg_get_for_screen(screen),
+				   type, pixbuf, file,
 				   color, saturation,
 				   _vte_draw_get_colormap(draw, TRUE));
-	if (data->pixmap) {
-		g_object_unref(G_OBJECT(data->pixmap));
+	if (data->pixmap != NULL) {
+		g_object_unref(data->pixmap);
 	}
+	draw->requires_clear = FALSE;
 	data->pixmap = NULL;
 	data->pixmapw = data->pixmaph = 0;
-	if (pixmap) {
+	if (pixmap != NULL) {
 		data->pixmap = pixmap;
 		gdk_drawable_get_size(pixmap, &data->pixmapw, &data->pixmaph);
+		draw->requires_clear =
+			data->pixmapw > 0 && data->pixmaph > 0;
 	}
+}
+
+static void
+_vte_pango_x_clip(struct _vte_draw *draw, GdkRegion *region)
+{
+	struct _vte_pango_x_data *data = draw->impl_data;
+	gdk_gc_set_clip_region(data->gc, region);
 }
 
 static void
@@ -279,21 +282,17 @@ _vte_pango_x_set_text_font(struct _vte_draw *draw,
 	PangoLayout *layout;
 	PangoLayoutIter *iter;
 	PangoRectangle ink, logical;
-	gunichar full_codepoints[] = {VTE_DRAW_DOUBLE_WIDE_CHARACTERS};
+	gunichar full_codepoints[] = {VTE_DRAW_DOUBLE_WIDE_IDEOGRAPHS};
 	GString *full_string;
 	gint full_width;
-	int i;
+	guint i;
 	struct _vte_pango_x_data *data;
 
 	data = (struct _vte_pango_x_data*) draw->impl_data;
 
-#if GTK_CHECK_VERSION(2,2,0)
 	display = gdk_x11_display_get_xdisplay(gtk_widget_get_display(draw->widget));
-#else
-	display = gdk_display;
-#endif
-	if (PANGO_IS_CONTEXT(data->ctx)) {
-		g_object_unref(G_OBJECT(data->ctx));
+	if (data->ctx != NULL) {
+		g_object_unref(data->ctx);
 	}
 	ctx = pango_x_get_context(display);
 
@@ -318,7 +317,7 @@ _vte_pango_x_set_text_font(struct _vte_draw *draw,
 	pango_layout_iter_free(iter);
 
 	/* Estimate for CJK characters. */
-	full_string = g_string_new("");
+	full_string = g_string_new(NULL);
 	for (i = 0; i < G_N_ELEMENTS(full_codepoints); i++) {
 		g_string_append_unichar(full_string, full_codepoints[i]);
 	}
@@ -329,7 +328,8 @@ _vte_pango_x_set_text_font(struct _vte_draw *draw,
 
 	/* If they're the same, then we have a screwy font. */
 	if (full_width == draw->width) {
-		draw->width /= 2;
+		/* add 1 to round up when dividing by 2 */
+		draw->width = (draw->width + 1) / 2;
 	}
 
 	draw->width = PANGO_PIXELS(draw->width);
@@ -342,14 +342,11 @@ _vte_pango_x_set_text_font(struct _vte_draw *draw,
 	}
 	pango_layout_iter_free(iter);
 
-#ifdef VTE_DEBUG
-	if (_vte_debug_on(VTE_DEBUG_MISC)) {
-		fprintf(stderr, "VtePangoX font metrics = %dx%d (%d).\n",
+	_vte_debug_print(VTE_DEBUG_MISC,
+			"VtePangoX font metrics = %dx%d (%d).\n",
 			draw->width, draw->height, draw->ascent);
-	}
-#endif
-	g_object_unref(G_OBJECT(layout));
-	g_object_unref(G_OBJECT(ctx));
+	g_object_unref(layout);
+	g_object_unref(ctx);
 }
 
 static int
@@ -392,8 +389,7 @@ _vte_pango_x_draw_text(struct _vte_draw *draw,
 	GC gc;
 	struct _vte_pango_x_data *data;
 	char buf[VTE_UTF8_BPC];
-	int i;
-	gsize length;
+	gsize i, length;
 	GdkColor wcolor;
 
 	data = (struct _vte_pango_x_data*) draw->impl_data;
@@ -426,6 +422,13 @@ _vte_pango_x_draw_char(struct _vte_draw *draw,
 	return TRUE;
 }
 
+static gboolean
+_vte_pango_x_draw_has_char(struct _vte_draw *draw, gunichar c)
+{
+	return FALSE;
+}
+
+
 static void
 _vte_pango_x_draw_rectangle(struct _vte_draw *draw,
 			  gint x, gint y, gint width, gint height,
@@ -442,7 +445,7 @@ _vte_pango_x_draw_rectangle(struct _vte_draw *draw,
 	gdk_gc_set_foreground(data->gc, &wcolor);
 
 	gdk_draw_rectangle(draw->widget->window, data->gc, FALSE,
-			   x, y, width, height);
+			   x, y, width-1, height-1);
 }
 
 static void
@@ -471,8 +474,8 @@ _vte_pango_x_set_scroll(struct _vte_draw *draw, gint x, gint y)
 	data->scrolly = y;
 }
 
-struct _vte_draw_impl _vte_draw_pango_x = {
-	"VtePangoX", "VTE_USE_PANGOX",
+const struct _vte_draw_impl _vte_draw_pango_x = {
+	"pangox",
 	_vte_pango_x_check,
 	_vte_pango_x_create,
 	_vte_pango_x_destroy,
@@ -483,6 +486,7 @@ struct _vte_draw_impl _vte_draw_pango_x = {
 	_vte_pango_x_set_background_color,
 	_vte_pango_x_set_background_image,
 	FALSE,
+	_vte_pango_x_clip,
 	_vte_pango_x_clear,
 	_vte_pango_x_set_text_font,
 	_vte_pango_x_get_text_width,
@@ -492,6 +496,7 @@ struct _vte_draw_impl _vte_draw_pango_x = {
 	_vte_pango_x_get_using_fontconfig,
 	_vte_pango_x_draw_text,
 	_vte_pango_x_draw_char,
+	_vte_pango_x_draw_has_char,
 	_vte_pango_x_draw_rectangle,
 	_vte_pango_x_fill_rectangle,
 	_vte_pango_x_set_scroll,

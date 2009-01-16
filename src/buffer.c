@@ -18,7 +18,6 @@
  *
  */
 
-#ident "$Id: buffer.c 515 2002-12-14 00:40:53Z nalin $"
 #include "../config.h"
 #include <sys/types.h>
 #include <glib.h>
@@ -34,6 +33,7 @@ struct _vte_real_buffer {
 	size_t buf_used, buf_length;
 };
 
+#ifndef G_DISABLE_ASSERT
 static void
 _vte_buffer_check(struct _vte_buffer *buffer, size_t length)
 {
@@ -44,6 +44,9 @@ _vte_buffer_check(struct _vte_buffer *buffer, size_t length)
 	g_assert(buf->buf_length >= length);
 	g_assert(buf->buf_length >= buf->buf_used);
 }
+#else
+#define _vte_buffer_check(b, len)
+#endif
 
 static size_t
 _vte_buffer_calc_new_size(size_t minimum_length)
@@ -55,7 +58,7 @@ struct _vte_buffer*
 _vte_buffer_new(void)
 {
 	struct _vte_real_buffer *buf;
-	buf = g_malloc(sizeof(struct _vte_real_buffer));
+	buf = g_slice_new(struct _vte_real_buffer);
 	buf->buf_used = buf->buf_length = 0;
 	buf->bytes = NULL;
 	return (struct _vte_buffer*) buf;
@@ -178,7 +181,7 @@ _vte_buffer_free(struct _vte_buffer *buffer)
 	struct _vte_real_buffer *buf = (struct _vte_real_buffer*) buffer;
 	_vte_buffer_check(buffer, 0);
 	g_free(buf->bytes);
-	g_free(buf);
+	g_slice_free(struct _vte_real_buffer, buf);
 }
 
 size_t
@@ -255,7 +258,7 @@ _vte_buffer_peek_gstring(struct _vte_buffer *buffer)
 	guint32 i;
 	i = _vte_buffer_peek_guint32(buffer);
 	_vte_buffer_check(buffer, sizeof(i) + i);
-	ret = g_string_new_len(buffer->bytes + sizeof(i), i);
+	ret = g_string_new_len((gchar *)buffer->bytes + sizeof(i), i);
 	return ret;
 }
 

@@ -21,7 +21,6 @@
 #ifndef vte_vtefc_h_included
 #define vte_vtefc_h_included
 
-#ident "$Id: vtefc.h 1076 2004-04-20 05:16:56Z nalin $"
 
 #include <fontconfig/fontconfig.h>
 #include <pango/pango.h>
@@ -36,7 +35,7 @@ gboolean
 _vte_fc_patterns_from_pango_font_desc(GtkWidget *widget,
 				      const PangoFontDescription *font_desc,
 				      VteTerminalAntiAlias antialias,
-				      GArray *pattern_array,
+				      GPtrArray *pattern_array,
 				      _vte_fc_defaults_cb defaults_cb,
 				      gpointer defaults_data);
 

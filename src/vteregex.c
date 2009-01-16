@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vteregex.c 1074 2004-04-20 05:08:43Z nalin $"
 #include "../config.h"
 #include <sys/types.h>
 #include <errno.h>
@@ -57,7 +56,7 @@ _vte_regex_sort_matches(struct _vte_regex_match *matches, gsize n_matches)
 	if (n_matches <= 1) {
 		return;
 	}
-	array = g_array_new(0, 0, sizeof(struct _vte_regex_match));
+	array = g_array_new(FALSE, FALSE, sizeof(struct _vte_regex_match));
 	g_array_append_vals(array, matches, n_matches);
 	g_array_sort(array, compare_matches);
 	memmove(matches, array->data,
@@ -80,10 +79,10 @@ _vte_regex_compile(const char *pattern)
 	struct _vte_regex *ret;
 	const char *res;
 
-	ret = g_malloc0(sizeof(struct _vte_regex));
+	ret = g_slice_new0(struct _vte_regex);
 	res = re_compile_pattern(pattern, strlen(pattern), &ret->buffer);
 	if (res != NULL) {
-		g_free(ret);
+		g_slice_free(struct _vte_regex, ret);
 		return NULL;
 	}
 	return ret;
@@ -93,7 +92,7 @@ void
 _vte_regex_free(struct _vte_regex *regex)
 {
 	regfree(&regex->buffer);
-	g_free(regex);
+	g_slice_free(struct _vte_regex, regex);
 }
 
 int
@@ -148,18 +147,19 @@ _vte_regex_compile(const char *pattern)
 	const char *err;
 	int err_offset;
 
-	ret = g_malloc(sizeof(struct _vte_regex));
+	ret = g_slice_new(struct _vte_regex);
 
-	ret->pcre = pcre_compile(pattern, PCRE_UTF8, &err, &err_offset, NULL);
+	ret->pcre = pcre_compile(pattern, PCRE_UTF8|PCRE_NO_UTF8_CHECK,
+			&err, &err_offset, NULL);
 	if (ret->pcre == NULL) {
-		g_free(ret);
+		g_slice_free(struct _vte_regex, ret);
 		return NULL;
 	}
 
 	ret->extra = pcre_study(ret->pcre, 0, &err);
-	if (ret->extra == NULL) {
+	if (err != NULL) {
 		pcre_free(ret->pcre);
-		g_free(ret);
+		g_slice_free(struct _vte_regex, ret);
 		return NULL;
 	}
 
@@ -171,38 +171,37 @@ _vte_regex_free(struct _vte_regex *regex)
 {
 	pcre_free(regex->pcre);
 	pcre_free(regex->extra);
-	g_free(regex);
+	g_slice_free(struct _vte_regex, regex);
 }
 
 int
 _vte_regex_exec(struct _vte_regex *regex, const char *string,
 		gsize nmatch, struct _vte_regex_match *matches)
 {
-	int i, n_matches, *ovector, ovector_length, length;
+	int ret, *ovector, ovector_length, length;
+	gsize n, n_matches;
 
-	for (i = 0; i < nmatch; i++) {
-		matches[i].rm_so = -1;
-		matches[i].rm_eo = -1;
+	for (n = 0; n < nmatch; n++) {
+		matches[n].rm_so = -1;
+		matches[n].rm_eo = -1;
 	}
 
 	length = strlen(string);
 	ovector_length = 3 * (length + 1);
-	ovector = g_malloc(sizeof(int) * ovector_length);
+	ovector = g_new(int, ovector_length);
 
-	i = pcre_exec(regex->pcre, regex->extra, string, length,
+	ret = pcre_exec(regex->pcre, regex->extra, string, length,
 		      0, 0, ovector, ovector_length);
-
-	if (i < 0) {
+	if (ret < 0) {
 		g_free(ovector);
 		return -1;
 	}
 
-	n_matches = i;
-	while (i > 0) {
-		i--;
-		if (i < nmatch) {
-			matches[i].rm_so = ovector[i * 2];
-			matches[i].rm_eo = ovector[i * 2 + 1];
+	n = n_matches = ret;
+	while (n-- > 0) {
+		if (n < nmatch) {
+			matches[n].rm_so = ovector[n * 2];
+			matches[n].rm_eo = ovector[n * 2 + 1];
 		}
 	}
 	_vte_regex_sort_matches(matches, n_matches);
@@ -225,10 +224,10 @@ _vte_regex_compile(const char *pattern)
 	struct _vte_regex *ret;
 	int i;
 
-	ret = g_malloc(sizeof(struct _vte_regex));
+	ret = g_slice_new(struct _vte_regex);
 	i = regcomp(&ret->posix_regex, pattern, REG_EXTENDED);
 	if (i != 0) {
-		g_free(ret);
+		g_slice_free(struct _vte_regex, ret);
 		return NULL;
 	}
 	return ret;
@@ -238,7 +237,7 @@ void
 _vte_regex_free(struct _vte_regex *regex)
 {
 	regfree(&regex->posix_regex);
-	g_free(regex);
+	g_slice_free(struct _vte_regex, regex);
 }
 
 int
@@ -246,9 +245,9 @@ _vte_regex_exec(struct _vte_regex *regex, const char *string,
 		gsize nmatch, struct _vte_regex_match *matches)
 {
 	regmatch_t *posix_matches;
-	int i, ret;
+	guint i, ret;
 
-	posix_matches = g_malloc(nmatch * sizeof(regmatch_t));
+	posix_matches = g_new(regmatch_t, nmatch);
 	ret = regexec(&regex->posix_regex, string, nmatch, posix_matches, 0);
 	if (ret == 0) {
 		for (i = 0; i < nmatch; i++) {

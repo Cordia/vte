@@ -23,7 +23,6 @@
 #ifndef vte_buffer_h_included
 #define vte_buffer_h_included
 
-#ident "$Id: buffer.h 515 2002-12-14 00:40:53Z nalin $"
 
 #include <sys/types.h>
 

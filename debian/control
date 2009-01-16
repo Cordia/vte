@@ -3,7 +3,7 @@ Section: libs
 Priority: optional
 Maintainer: Santtu Lakkala <inz@inz.fi>
 Standards-Version: 3.6.2
-Build-Depends: cdbs, debhelper (>= 4.1.0), libgtk2.0-dev (>= 2.6), gettext, libncurses5-dev, libxrender-dev, gnome-pkg-tools, gtk-doc-tools (>= 1.0), libfreetype6-dev (>= 2.0.2), intltool
+Build-Depends: cdbs, debhelper (>= 3.4.4), libgtk2.0-dev (>= 2.6), gettext, libncurses5-dev, libxrender-dev, gnome-pkg-tools, gtk-doc-tools (>= 1.0), libfreetype6-dev (>= 2.0.2), intltool
 
 Package: libvte4
 Architecture: any

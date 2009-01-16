@@ -1,9 +1,26 @@
 AC_PREREQ(2.56)
-AC_INIT(vte, [0.12.2],
+AC_INIT(vte, [0.16.14],
         [http://bugzilla.gnome.org/enter_bug.cgi?product=vte])
 AC_CONFIG_SRCDIR([src/vte.c])
 AM_INIT_AUTOMAKE(1.6)
 AM_CONFIG_HEADER([config.h])
+
+################################################################################
+# Libtool shared library versioning stuffs.
+# REVISION gets incremented whenever the source code changes without adding
+# an API or ABI change.
+LTVERSION_REVISION=18
+# CURRENT must be incremented when an API or ABI change (addition or removal)
+# is made, and REVISION must be reset to 0 when this happens.
+LTVERSION_CURRENT=11
+# AGE must be incremented when an API or ABI addition is made, and REVISION
+# must be reset to 0 when this happens.
+LTVERSION_AGE=2
+
+LIBVTE_LTVERSION=${LTVERSION_CURRENT}:${LTVERSION_REVISION}:${LTVERSION_AGE}
+AC_SUBST([LIBVTE_LTVERSION])
+
+################################################################################
 
 AC_ISC_POSIX
 AC_PROG_CC
@@ -12,10 +29,8 @@ AM_PROG_CC_STDC
 AM_MAINTAINER_MODE
 
 AM_PROG_LIBTOOL
+IT_PROG_INTLTOOL([0.35.0])
 
-ALL_LINGUAS="am ang ar az be bg bn bs ca cs cy da de dz el en_CA en_GB es et eu fa fi fr ga gl gu he hi hr hu id is it ja ka kn ko ku ky li lt lv mi mk ml mn ms nb ne nl nn no or pa pl pt pt_BR ro ru rw sk sl sq sr sr@Latn sv ta th tr ug uk vi wa xh zh_CN zh_HK zh_TW"
-
-AC_PROG_INTLTOOL([0.31])
 GETTEXT_PACKAGE=vte
 AC_SUBST(GETTEXT_PACKAGE)
 AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE,"$GETTEXT_PACKAGE",
@@ -23,30 +38,226 @@ AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE,"$GETTEXT_PACKAGE",
 AM_GLIB_GNU_GETTEXT
 AC_CHECK_DECLS(bind_textdomain_codeset,,,[#include "libintl.h"])
 
+
+################################################################################
+# Platform checks
+################################################################################
+
+AC_MSG_CHECKING([for a win32 platform])
+platform_win32=no
+case "$host" in
+	*-*-mingw*|*-*-cygwin*)
+		platform_win32=yes
+		;;
+esac
+AC_MSG_RESULT([$platform_win32])
+AM_CONDITIONAL(PLATFORM_WIN32, test "$platform_win32" = "yes")
+
+os_win32=no
+if test "x$platform_win32" = "xyes"; then
+	AC_MSG_CHECKING([for native win32])
+	case "$host" in
+		*-*-mingw*)
+			os_win32=yes
+			;;
+	esac
+	AC_MSG_RESULT([$os_win32])
+fi
+AM_CONDITIONAL(OS_WIN32, test "x$os_win32" = "xyes")
+
+
+if test "x$platform_win32" != "xyes"; then
+	LIBTOOL_EXPORT_OPTIONS=
+else
+	LIBTOOL_EXPORT_OPTIONS='-no-undefined'
+fi
+AC_SUBST([LIBTOOL_EXPORT_OPTIONS])
+LIBTOOL_FLAGS='-as-needed'
+AC_SUBST([LIBTOOL_FLAGS])
+
+
+################################################################################
+# Compilation
+################################################################################
+
+# Save the names of these other libraries.
+OTHERCFLAGS="$X_CFLAGS"
+AC_SUBST(OTHERCFLAGS)
+OTHERLIBS="$LIBS"
+AC_SUBST(OTHERLIBS)
+
+dnl Use lots of warning flags with with gcc and compatible compilers
+dnl Copied from cairo
+AC_DEFUN([VTE_CC_TRY_FLAG], [
+  AC_MSG_CHECKING([whether $CC supports $1])
+
+  vte_save_CFLAGS="$CFLAGS"
+  CFLAGS="$CFLAGS $1"
+
+  AC_COMPILE_IFELSE([ ], [vte_cc_flag=yes], [vte_cc_flag=no])
+  CFLAGS="$vte_save_CFLAGS"
+
+  if test "x$vte_cc_flag" = "xyes"; then
+    ifelse([$2], , :, [$2])
+  else
+    ifelse([$3], , :, [$3])
+  fi
+  AC_MSG_RESULT([$vte_cc_flag])
+])
+AC_DEFUN([VTE_LD_TRY_FLAG], [
+  AC_MSG_CHECKING([whether $CC supports $1 when linking])
+
+  vte_save_LDFLAGS="$LDFLAGS"
+  LDFLAGS="$LDFLAGS $1"
+
+  AC_LINK_IFELSE([int main(void) {return 0;}],
+		[vte_ld_flag=yes], [vte_ld_flag=no])
+  LDFLAGS="$vte_save_LDFLAGS"
+
+  if test "x$vte_ld_flag" = "xyes"; then
+    ifelse([$2], , :, [$2])
+  else
+    ifelse([$3], , :, [$3])
+  fi
+  AC_MSG_RESULT([$vte_ld_flag])
+])
+
+
+dnl Note: if you change the following variable, the cache is automatically
+dnl skipped and all flags rechecked.  So there's no need to do anything
+dnl else.  If for any reason you need to force a recheck, just change
+dnl MAYBE_WARN in an ignorable way (like adding whitespace)
+
+MAYBE_WARN="-Wall -Wextra \
+-Wsign-compare -Werror-implicit-function-declaration \
+-Wpointer-arith -Wwrite-strings -Wstrict-prototypes \
+-Waggregate-return -Wcast-align -Wimplicit -Wuninitialised \
+-Wmissing-prototypes -Wmissing-declarations -Wnested-externs \
+-Wpacked -Wmissing-format-attribute -Wshadow \
+-Wstrict-aliasing=2 -Winit-self -Wunsafe-loop-optimizations \
+-Wdeclaration-after-statement -Wold-style-definition \
+-Wno-missing-field-initializers -Wno-unused-parameter \
+-fno-common"
+
+dnl Other flags you may wish to try: -Wswitch-enum 
+
+
+# invalidate cached value if MAYBE_WARN has changed
+if test "x$vte_cv_warn_maybe" != "x$MAYBE_WARN"; then
+	unset vte_cv_warn_cflags
+fi
+AC_CACHE_CHECK([for supported warning flags], vte_cv_warn_cflags, [
+	echo
+	WARN_CFLAGS=""
+
+	# Some warning options are not supported by all versions of
+	# gcc, so test all desired options against the current
+	# compiler.
+	#
+	# Note that there are some order dependencies
+	# here. Specifically, an option that disables a warning will
+	# have no net effect if a later option then enables that
+	# warnings, (perhaps implicitly). So we put some grouped
+	# options (-Wall and -Wextra) up front and the -Wno options
+	# last.
+
+	for W in $MAYBE_WARN; do
+		VTE_CC_TRY_FLAG([$W], [WARN_CFLAGS="$WARN_CFLAGS $W"])
+	done
+
+	vte_cv_warn_cflags=$WARN_CFLAGS
+	vte_cv_warn_maybe=$MAYBE_WARN
+
+	AC_MSG_CHECKING([which warning flags were supported])])
+WARN_CFLAGS=$vte_cv_warn_cflags
+AC_SUBST(WARN_CFLAGS)
+CFLAGS="$CFLAGS $WARN_CFLAGS"
+
+PYTHON_LDFLAGS=""
+for W in "-Wl,--warn-unresolved-symbols"; do
+	VTE_LD_TRY_FLAG([$W], [PYTHON_LDFLAGS="$PYTHON_LDFLAGS $W"])
+done
+AC_SUBST(PYTHON_LDFLAGS)
+
+# Enable debugging messages and additional run-time checks.
+AC_ARG_ENABLE(debug,
+	      [AS_HELP_STRING([--enable-debug],
+			      [enable extra debugging checks and logging messages]
+			      )],
+	      DEBUG=$enableval, DEBUG=no)
+if test "x$DEBUG" != "xno" ; then
+	AC_MSG_RESULT([enabling debug checks and messages])
+	AC_DEFINE(VTE_DEBUG,1,[Enable debugging messages.])
+fi
+
+
+
+################################################################################
+# Core
+################################################################################
+
+
 # On some OSs, AC_PATH_XTRA doesn't work right(?), so let the user specify
 # X_PRE_LIBS and X_EXTRA_LIBS to add even more libraries, and add -lX11 to
 # the list of libraries for grins.
-AC_PATH_XTRA
-X_CFLAGS=
-X_LIBS=
+AC_PATH_XTRA([X11], [X11/Xlib.h], [XFlush(NULL)])
 if test "$have_x" = yes ; then
-	if test -d "$ac_x_includes" ; then
+	if test -d "$x_includes" ; then
+		X_CFLAGS="-I$x_includes $X_CFLAGS"
+	elif test -d "$ac_x_includes" ; then
 		X_CFLAGS="-I$ac_x_includes $X_CFLAGS"
 	fi
 	X_LIBS="$X_PRE_LIBS $X_LIBS -lX11 $X_EXTRA_LIBS"
 	if test -d "$ac_x_libraries" ; then
+		X_LIBS="-L$x_libraries $X_LIBS"
+	elif test -d "$ac_x_libraries" ; then
 		X_LIBS="-L$ac_x_libraries $X_LIBS"
 	fi
 fi
-AC_SUBST(X_CFLAGS)
-AC_SUBST(X_LIBS)
+AC_SUBST([X_CFLAGS])
+AC_SUBST([X_LIBS])
+
+
+
+# Use all available features under glibc, and disable accidental use of
+# deprecated functionality.
+AC_EGREP_CPP(glibc,
+		[
+		 #include <stdio.h>
+		 #ifdef __GLIBC__
+		 glibc
+		 #endif
+		],
+		AC_DEFINE(_GNU_SOURCE,1,[Use all glibc features.]))
+
+case $host in
+*-*-solaris*)
+	AC_DEFINE(_XOPEN_SOURCE_EXTENDED,1,[Needed to get declarations for msg_control and msg_controllen on Solaris])
+	AC_DEFINE(_XOPEN_SOURCE,1,[Needed to get declarations for msg_control and msg_controllen on Solaris])
+	AC_DEFINE(__EXTENSIONS__,1,[Needed to get declarations for msg_control and msg_controllen on Solaris])
+	;;
+esac
+
 
 AC_DEFINE(GDK_MULTIHEAD_SAFE,1,[Force use of GDK's multihead-safe APIs.])
-PKG_CHECK_MODULES(GLIB,glib-2.0 > 2.6.0)
+PKG_CHECK_MODULES(GLIB,glib-2.0 > 2.9.0)
 PKG_CHECK_MODULES(GOBJECT,[glib-2.0 gobject-2.0])
 PKG_CHECK_MODULES(GTK,[glib-2.0 gobject-2.0 gtk+-2.0 >= 2.6.0])
 
 wantedmodules="glib-2.0 gobject-2.0 gtk+-2.0 fontconfig"
+
+AC_ARG_ENABLE(deprecation,
+	      [AS_HELP_STRING([--enable-deprecation],
+			      [prohibit VTE from using deprecated GLib/Pango/GDK/GTK+ features])
+	      ],
+	      usedeprecation=$enableval, usedeprecation=no)
+if test "x$usedeprecation" = "xyes" ; then
+	AC_DEFINE(G_DISABLE_DEPRECATED, 1, [Disable deprecated GLib features.])
+	AC_DEFINE(GDK_DISABLE_DEPRECATED, 1, [Disable deprecated GDK features.])
+	AC_DEFINE(GDK_PIXBUF_DISABLE_DEPRECATED, 1, [Disable deprecated gdk-pixbuf features.])
+	AC_DEFINE(GTK_DISABLE_DEPRECATED, 1, [Disable deprecated GTK+ features.])
+	AC_DEFINE(PANGO_DISABLE_DEPRECATED, 1, [Disable deprecated Pango features.])
+fi
 
 # Let the user specify the default terminal emulation.
 AC_ARG_WITH(default-emulation,
@@ -56,32 +267,99 @@ AC_DEFINE_UNQUOTED(VTE_DEFAULT_EMULATION,"$emulation",[The default terminal type
 VTE_DEFAULT_EMULATION=$emulation
 AC_SUBST(VTE_DEFAULT_EMULATION)
 
-# Use Xft2 if Pango has Xft2 support and it isn't disabled.
-if test "$have_x" = yes ; then
-	AC_ARG_WITH(xft2,[AS_HELP_STRING(--with-xft2,enable drawing using Xft2)],with_xft2=$withval,with_xft2=yes)
-	if test $with_xft2 = yes ; then
-		if pkg-config --exists pangoxft '>=' 1.1.0 ; then
-			AC_DEFINE(HAVE_XFT2,1,[Whether we have Xft2])
-			wantedmodules="$wantedmodules pangoxft >= 1.1.0"
-			wantedmodules="xft >= 2.0 $wantedmodules"
-		else
-			AC_MSG_WARN([Xft2 not detected])
+# Miscellaneous definitions.
+AC_DEFINE(VTE_UTF8_BPC,6,[Maximum number of bytes used per UTF-8 character.])
+AC_DEFINE(VTE_INVALID_SOURCE,(guint)-1,[A number which can never be a valid source ID.])
+AC_DEFINE_UNQUOTED(PACKAGE,"$PACKAGE",[Package name.])
+
+# Check for headers.
+AC_CHECK_HEADERS(sys/select.h sys/syslimits.h sys/termios.h sys/un.h sys/wait.h stropts.h termios.h wchar.h)
+AC_HEADER_TIOCGWINSZ
+
+# Check for PTY handling functions.
+AC_CHECK_FUNCS([cfmakeraw fork setsid setpgid getpgid getpt grantpt unlockpt ptsname ptsname_r tcgetattr tcsetattr])
+
+# Pull in the right libraries for various functions which might not be
+# bundled into an exploded libc.
+AC_CHECK_FUNC(socket,[have_socket=1],AC_CHECK_LIB(socket,socket,[have_socket=1; LIBS="$LIBS -lsocket"]))
+AC_CHECK_FUNC(socketpair,[have_socketpair=1],AC_CHECK_LIB(socket,socketpair,[have_socketpair=1; LIBS="$LIBS -lsocket"]))
+AC_CHECK_FUNC(recvmsg,[have_recvmsg=1],AC_CHECK_LIB(socket,recvmsg,[have_recvmsg=1; LIBS="$LIBS -lsocket -lnsl"]))
+if test x$have_socket = x1 ; then
+	AC_DEFINE(HAVE_SOCKET,1,[Define if you have the socket function.])
+fi
+if test x$have_socketpair = x1 ; then
+	AC_DEFINE(HAVE_SOCKETPAIR,1,[Define if you have the socketpair function.])
+fi
+if test x$have_recvmsg = x1 ; then
+	AC_DEFINE(HAVE_RECVMSG,1,[Define if you have the recvmsg function.])
+fi
+AC_CHECK_FUNC(floor,,AC_CHECK_LIB(m,floor,LIBS=["$LIBS -lm"]))
+AC_CHECK_FUNCS([ceil floor])
+
+# Look for ncurses or curses or termcap.
+AC_CHECK_HEADER(ncurses.h,[AC_CHECK_HEADER(term.h,[AC_CHECK_LIB(ncurses,tgetent,[LIBS="-lncurses $LIBS";AC_DEFINE(HAVE_NCURSES,1,[Define if you have ncurses.h and libncurses])])])])
+if test x$ac_cv_lib_ncurses_tgetent != xyes ; then
+	AC_CHECK_HEADER(ncurses/curses.h,[AC_CHECK_HEADER(ncurses/term.h,[AC_CHECK_LIB(ncurses,tgetent,[LIBS="-lncurses $LIBS";AC_DEFINE(HAVE_NCURSES_CURSES,1,[Define if you have ncurses/curses.h and libncurses])])])])
+	if test x$ac_cv_lib_ncurses_tgetent != xyes ; then
+		AC_CHECK_HEADER(curses.h,[AC_CHECK_HEADER(term.h,[AC_CHECK_LIB(curses,tgetent,[LIBS="-lcurses $LIBS";AC_DEFINE(HAVE_CURSES,1,[Define if you have curses.h and libcurses])])])])
+		if test x$ac_cv_lib_curses_tgetent != xyes ; then
+			AC_CHECK_HEADER(termcap.h,[AC_CHECK_LIB(termcap,tgetent,[LIBS="-ltermcap $LIBS";AC_DEFINE(HAVE_TERMCAP,1,[Define if you have termcap.h and libtermcap])])])
+			if test x$ac_cv_header_termcap_h != xyes ; then
+				AC_MSG_ERROR([You must have at least one of ncurses, curses, or libtermcap installed to build vte.])
+			fi
 		fi
 	fi
 fi
 
-# Use PangoX if we have it and it isn't disabled.
-if test "$have_x" = yes ; then
-	AC_ARG_WITH(pangox,[AS_HELP_STRING(--with-pangox,enable drawing using PangoX)],with_pangox=$withval,with_pangox=yes)
-	if test $with_pangox = yes ; then
-		if pkg-config --exists pangox ; then
-			AC_DEFINE(HAVE_PANGOX,1,[Whether we have PangoX])
-			wantedmodules="$wantedmodules pangox"
-		else
-			AC_MSG_WARN([PangoX not detected])
-		fi
+
+################################################################################
+# Backends
+################################################################################
+
+# Use Xft2 if Pango has Xft2 support and it isn't disabled.
+if test "x$have_x" = "xyes" ; then
+	AC_ARG_WITH(xft2,
+		    [AS_HELP_STRING([--with-xft2],
+				    [enable drawing using Xft2])
+		    ], with_xft2=$withval, with_xft2=yes)
+	if test "x$with_xft2" = "xyes" ; then
+		PKG_CHECK_EXISTS([pangoxft >= 1.1.0], [
+			AC_DEFINE(HAVE_XFT2,1,[Whether we have Xft2])
+			wantedmodules="xft >= 2.0 $wantedmodules pangoxft >= 1.1.0"
+			],[
+			AC_MSG_WARN([Xft2 not detected])
+			with_xft2="no - not detected"
+			])
 	fi
+else
+	with_xft2="no - missing X Window System"
 fi
+AM_CONDITIONAL(BUILD_XFT, test "x$with_xft2" = "xyes")
+
+# Use PangoX if we have it and it isn't disabled.
+if test "x$usedeprecation" != "xyes" ; then
+	if test "x$have_x" = "xyes" ; then
+		AC_ARG_WITH(pangox,
+			    [AS_HELP_STRING([--with-pangox],
+					    [enable drawing using PangoX])
+			    ], with_pangox=$withval, with_pangox=yes)
+		if test "x$with_pangox" = "xyes" ; then
+			PKG_CHECK_EXISTS(pangox, [
+				AC_DEFINE(HAVE_PANGOX, 1, 
+					  [Whether we have PangoX])
+				wantedmodules="$wantedmodules pangox"
+				],[
+				AC_MSG_WARN([PangoX not detected])
+				with_pangox="no - not detected"
+				])
+		fi
+	else
+		with_pangox="no - missing X Window System"
+	fi
+else
+	with_pangox="no - deprecated"
+fi
+AM_CONDITIONAL(BUILD_PANGOX, test "x$with_pangox" = "xyes")
 
 # Use glX if we have it and it isn't disabled.
 if test "$have_x" = yes ; then
@@ -97,7 +375,7 @@ if test "$have_x" = yes ; then
 			AC_DEFINE(HAVE_GL,1,[Whether we have GL and glX.])
 		fi
 		if test $have_libgl = 1 ; then
-			LIBS="-lGLU -lGL $LIBS"
+			LIBS="-lGL $LIBS"
 		fi
 	fi
 fi
@@ -107,9 +385,30 @@ PKG_CHECK_MODULES(VTE,[$wantedmodules])
 NEEDEDPACKAGES="$wantedmodules"
 AC_SUBST(NEEDEDPACKAGES)
 
-# Require Freetype2.  We use our local copy of the macro because packages of
-# freetype's development files don't always include the proper macro.
-VTE_CHECK_FT2(6.1.0,,[AC_MSG_ERROR([You must have freetype 2.0.2 or later to build vte.])])
+# Check for various optional functions within those modules
+save_CFLAGS="$CFLAGS"
+save_LIBS="$LIBS"
+CFLAGS="$CFLAGS $VTE_CFLAGS"
+LIBS="$VTE_LIBS $LIBS"
+# Workaround a broken fontconfig-dev on Edgy
+AC_COMPILE_IFELSE([
+#include <fontconfig/fontconfig.h>
+int main(void)
+{
+	FcStrFree (FcNameUnparse (0));
+	return 0;
+}
+], [AC_CHECK_FUNCS([FcNameUnparse FcStrFree])],)
+LIBS="$save_LIBS"
+CFLAGS="$save_CFLAGS"
+
+# Require Freetype2. First see if there is suitable pkgconfig file...
+PKG_CHECK_EXISTS(freetype2 >= 6.1.0,
+		 [PKG_CHECK_MODULES(FT2, freetype2)], [
+	# We use our local copy of the macro because packages of
+	# freetype's development files don't always include the proper macro.
+	VTE_CHECK_FT2(6.1.0,,
+		      [AC_MSG_ERROR([You must have freetype 2.0.2 or later to build vte.])])])
 
 # Temporarily pull in the Freetype cflags and libs for checking what's
 # available in this version.
@@ -210,101 +509,6 @@ AC_CHECK_DECLS(FT_PIXEL_MODE_LCD,,,[
 CFLAGS="$savecflags"
 CPPFLAGS="$savecppflags"
 
-# Use all available features under glibc, and disable accidental use of
-# deprecated functionality.
-AC_EGREP_CPP(glibc,
-		[
-		 #include <stdio.h>
-		 #ifdef __GLIBC__
-		 glibc
-		 #endif
-		],
-		AC_DEFINE(_GNU_SOURCE,1,[Use all glibc features.]))
-AC_DEFINE(_XOPEN_SOURCE_EXTENDED,1,[Needed to get declarations for msg_control and msg_controllen on Solaris])
-AC_DEFINE(_XOPEN_SOURCE,1,[Needed to get declarations for msg_control and msg_controllen on Solaris])
-AC_DEFINE(__EXTENSIONS__,1,[Needed to get declarations for msg_control and msg_controllen on Solaris])
-
-AC_ARG_ENABLE(deprecation,[AS_HELP_STRING(--enable-deprecation,prohibit VTE from using deprecated GLib/Pango/GDK/GTK+ features)],usedeprecation=$enableval,usedeprecation=no)
-if test "$usedeprecation" = yes ; then
-AC_DEFINE(G_DISABLE_DEPRECATED,1,[Disable deprecated GLib features.])
-AC_DEFINE(GDK_DISABLE_DEPRECATED,1,[Disable deprecated GDK features.])
-AC_DEFINE(GDK_PIXBUF_DISABLE_DEPRECATED,1,[Disable deprecated gdk-pixbuf features.])
-AC_DEFINE(GTK_DISABLE_DEPRECATED,1,[Disable deprecated GTK+ features.])
-AC_DEFINE(PANGO_DISABLE_DEPRECATED,1,[Disable deprecated Pango features.])
-fi
-
-# Miscellaneous definitions.
-AC_DEFINE(VTE_UTF8_BPC,6,[Maximum number of bytes used per UTF-8 character.])
-AC_DEFINE(VTE_INVALID_SOURCE,-1,[A number which can never be a valid source ID.])
-AC_DEFINE_UNQUOTED(PACKAGE,"$PACKAGE",[Package name.])
-
-# Check for headers.
-AC_CHECK_HEADERS(sys/select.h sys/termios.h sys/un.h stropts.h termios.h wchar.h)
-AC_HEADER_TIOCGWINSZ
-
-# Check for PTY handling functions.
-AC_CHECK_FUNCS(cfmakeraw getpgid getpt grantpt unlockpt ptsname ptsname_r)
-
-# Pull in the right libraries for various functions which might not be
-# bundled into an exploded libc.
-AC_CHECK_FUNC(socket,[have_socket=1],AC_CHECK_LIB(socket,socket,[have_socket=1; LIBS="$LIBS -lsocket"]))
-AC_CHECK_FUNC(socketpair,[have_socketpair=1],AC_CHECK_LIB(socket,socketpair,[have_socketpair=1; LIBS="$LIBS -lsocket"]))
-AC_CHECK_FUNC(recvmsg,[have_recvmsg=1],AC_CHECK_LIB(socket,recvmsg,[have_recvmsg=1; LIBS="$LIBS -lsocket -lnsl"]))
-if test x$have_socket = x1 ; then
-	AC_DEFINE(HAVE_SOCKET,1,[Define if you have the socket function.])
-fi
-if test x$have_socketpair = x1 ; then
-	AC_DEFINE(HAVE_SOCKETPAIR,1,[Define if you have the socketpair function.])
-fi
-if test x$have_recvmsg = x1 ; then
-	AC_DEFINE(HAVE_RECVMSG,1,[Define if you have the recvmsg function.])
-fi
-AC_CHECK_FUNC(floor,,AC_CHECK_LIB(m,floor,LIBS=["$LIBS -lm"]))
-
-# Look for ncurses or curses or termcap.
-AC_CHECK_HEADER(ncurses.h,[AC_CHECK_HEADER(term.h,[AC_CHECK_LIB(ncurses,tgetent,[LIBS="-lncurses $LIBS";AC_DEFINE(HAVE_NCURSES,1,[Define if you have ncurses.h and libncurses])])])])
-if test x$ac_cv_lib_ncurses_tgetent != xyes ; then
-	AC_CHECK_HEADER(curses.h,[AC_CHECK_HEADER(term.h,[AC_CHECK_LIB(curses,tgetent,[LIBS="-lcurses $LIBS";AC_DEFINE(HAVE_CURSES,1,[Define if you have curses.h and libcurses])])])])
-	if test x$ac_cv_lib_curses_tgetent != xyes ; then
-		AC_CHECK_HEADER(termcap.h,[AC_CHECK_LIB(termcap,tgetent,[LIBS="-ltermcap $LIBS";AC_DEFINE(HAVE_TERMCAP,1,[Define if you have termcap.h and libtermcap])])])
-		if test x$ac_cv_header_termcap_h != xyes ; then
-			AC_MSG_ERROR([You must have at least one of ncurses, curses, or libtermcap installed to build vte.])
-		fi
-	fi
-fi
-
-# Save the names of these other libraries.
-OTHERCFLAGS="$X_CFLAGS"
-AC_SUBST(OTHERCFLAGS)
-OTHERLIBS="$LIBS"
-AC_SUBST(OTHERLIBS)
-
-# Enable debugging messages and additional run-time checks.
-AC_ARG_ENABLE(debugging,[AS_HELP_STRING(--enable-debugging,enable extra debugging checks and logging messages)],DEBUG=$enableval,DEBUG=no)
-if test x$DEBUG != x ; then
-	if test x$DEBUG != xno ; then
-		if test x$GCC = xyes ; then
-			AC_CHECK_CC_OPT(-std=c99,vte_std_c99)
-			CFLAGS="${CFLAGS} $vte_std_c99"
-			CFLAGS="${CFLAGS} -Wall"
-			CFLAGS="${CFLAGS} -Waggregate-return"
-			CFLAGS="${CFLAGS} -Wcast-align"
-			CFLAGS="${CFLAGS} -Wimplicit"
-			CFLAGS="${CFLAGS} -Wmissing-declarations"
-			CFLAGS="${CFLAGS} -Wmissing-prototypes"
-			CFLAGS="${CFLAGS} -Wpointer-arith"
-			CFLAGS="${CFLAGS} -Wstrict-prototypes"
-			CFLAGS="${CFLAGS} -Wuninitialized"
-			#CFLAGS="${CFLAGS} -Wsign-compare"
-			#CFLAGS="${CFLAGS} -Wunused-value"
-		fi
-		VTE_DEBUG=1
-	fi
-fi
-if test x$VTE_DEBUG = x1 ; then
-	AC_MSG_RESULT([enabling debug checks and messages])
-	AC_DEFINE(VTE_DEBUG,1,[Enable debugging messages.])
-fi
 
 wcs_funcs_includes="
 #ifdef HAVE_STRING_H
@@ -323,6 +527,11 @@ wcs_funcs_includes="
 "
 
 AC_CHECK_TYPES(wint_t, AC_DEFINE(HAVE_WINT_T, , [Defined when the wint_t type is supported]), ,$wcs_funcs_includes)
+
+
+################################################################################
+# Auxillary modules
+################################################################################
 
 # Search for Python.
 BUILD_PYTHON=true
@@ -391,41 +600,6 @@ AC_SUBST(PYTHONREV)
 AC_SUBST(PYTHONMODULES)
 AM_CONDITIONAL(BUILD_PYTHON_MODULES, $BUILD_PYTHON)
 
-# If we can find libzvt on the system, set up to build a variant of "reflect"
-# which uses it.
-REFLECT_ZVT=false
-if pkg-config --exists libzvt-2.0 ; then
-	REFLECT_ZVT=true
-	ZVT_DEFS=-DHAVE_ZVT
-	PKG_CHECK_MODULES(ZVT,[gtk+-2.0 libzvt-2.0])
-fi
-AC_SUBST(ZVT_DEFS)
-AM_CONDITIONAL(REFLECT_USE_ZVT, $REFLECT_ZVT)
-
-mylibdir=`eval echo $libdir`
-mylibexecdir=`eval echo $libexecdir`
-mydatadir=`eval echo $datadir`
-if test x$exec_prefix = xNONE ; then
-	if test x$prefix = xNONE ; then
-		mylibdir=` echo $mylibdir  | sed s,NONE,$ac_default_prefix,g`
-		mylibexecdir=` echo $mylibexecdir  | sed s,NONE,$ac_default_prefix,g`
-	else
-		mylibdir=` echo $mylibdir  | sed s,NONE,$prefix,g`
-		mylibexecdir=` echo $mylibexecdir  | sed s,NONE,$prefix,g`
-	fi
-fi
-if test x$prefix = xNONE ; then
-	mydatadir=`echo $mydatadir | sed s,NONE,$ac_default_prefix,g`
-fi
-AC_DEFINE_UNQUOTED(PKGLIBDIR,"$mylibdir/$PACKAGE",
-                   [The location where package-specific helpers can be found.])
-AC_DEFINE_UNQUOTED(LIBEXECDIR,"$mylibexecdir",
-                   [The location where package-specific helpers can be found.])
-AC_DEFINE_UNQUOTED(DATADIR,"$mydatadir",
-                   [The location where arch-independent package-specific data can be found.])
-AC_DEFINE_UNQUOTED(LOCALEDIR,"$mydatadir/locale",
-                   [The location where locale data can be found.])
-
 AC_ARG_ENABLE(gnome-pty-helper, [AS_HELP_STRING(--enable-gnome-pty-helper,Build a setuid helper for opening ptys [default=yes])], enable_gnome_pty_helper="$enableval", enable_gnome_pty_helper=yes)
 if test "$enable_gnome_pty_helper" != no; then
 	AC_DEFINE(VTE_USE_GNOME_PTY_HELPER,1,[Define if you intend to use gnome-pty-helper.])
@@ -450,6 +624,23 @@ doc/openi18n/Makefile
 doc/reference/Makefile
 vte.pc
 vte-uninstalled.pc
-vte.spec
 ])
 AC_OUTPUT
+
+
+#####################
+# Print configuration
+#####################
+cat <<EOF | tee -a config.log
+
+## -------------- ##
+## Configuration. ##
+## -------------- ##
+
+Configuration for libvte $VERSION
+	With XFT: $with_xft2
+	With PangoX: $with_pangox
+	With PCRE: $use_pcre
+	Debugging: $DEBUG
+	Disable deprecated features: $usedeprecation
+EOF

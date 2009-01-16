@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vtefc.c 1076 2004-04-20 05:16:56Z nalin $"
 
 #include "../config.h"
 
@@ -28,6 +27,7 @@
 #include <glib.h>
 #include "vtefc.h"
 #include "vterdb.h"
+#include "debug.h"
 
 static int
 _vte_fc_weight_from_pango_weight(int weight)
@@ -102,52 +102,33 @@ _vte_fc_transcribe_from_pango_font_description(GtkWidget *widget,
 					       FcPattern *pattern,
 				       const PangoFontDescription *font_desc)
 {
-#if GTK_CHECK_VERSION(2,2,0)
-	GdkScreen *screen;
-#endif
-	const char *family = "monospace";
+	const char *family;
+	gdouble size;
 	PangoLanguage *language;
-	double size = 10.0;
-	int pango_mask;
 	PangoContext *context;
 	PangoWeight weight;
 	PangoStyle style;
 	PangoStretch stretch;
+	guint pango_mask;
 
-	if (font_desc == NULL) {
-		return;
-	}
-
+	/* Assuming font desc at least contains family and size */
 	pango_mask = pango_font_description_get_set_fields(font_desc);
+	g_assert ((pango_mask & (PANGO_FONT_MASK_FAMILY | PANGO_FONT_MASK_SIZE))
+			== (PANGO_FONT_MASK_FAMILY | PANGO_FONT_MASK_SIZE));
 
-	/* Set the family for the pattern, or use a sensible default. */
-	if (pango_mask & PANGO_FONT_MASK_FAMILY) {
-		family = pango_font_description_get_family(font_desc);
-	}
-	FcPatternAddString(pattern, FC_FAMILY, family);
+	/* Set the family for the pattern. */
+	family = pango_font_description_get_family(font_desc);
+	FcPatternAddString(pattern, FC_FAMILY, (guchar *) family);
 
-	/* Set the font size for the pattern, or use a sensible default. */
-	if (pango_mask & PANGO_FONT_MASK_SIZE) {
-		size = pango_font_description_get_size(font_desc);
-		size /= PANGO_SCALE;
-	}
-	FcPatternAddDouble(pattern, FC_SIZE, size);
+	/* Set the font size for the pattern. */
+	size = pango_font_description_get_size(font_desc);
+	FcPatternAddDouble(pattern, FC_SIZE, size / PANGO_SCALE);
 
-	/* Set the language for the pattern. */
-#if GTK_CHECK_VERSION(2,2,0)
-	if (gtk_widget_has_screen(widget)) {
-		screen = gtk_widget_get_screen(widget);
-	} else {
-		screen = gdk_display_get_default_screen(gtk_widget_get_display(widget));
-	}
-	context = gdk_pango_context_get_for_screen(screen);
-#else
-	context = gdk_pango_context_get();
-#endif
+	context = gtk_widget_get_pango_context (widget);
 	language = pango_context_get_language(context);
 	if (pango_language_to_string(language) != NULL) {
 		FcPatternAddString(pattern, FC_LANG,
-				   pango_language_to_string(language));
+				   (guchar *) pango_language_to_string(language));
 	}
 
 	/* There aren't any fallbacks for these, so just omit them from the
@@ -157,20 +138,16 @@ _vte_fc_transcribe_from_pango_font_description(GtkWidget *widget,
 		FcPatternAddInteger(pattern, FC_WEIGHT,
 				    _vte_fc_weight_from_pango_weight(weight));
 	}
-
 	if (pango_mask & PANGO_FONT_MASK_STRETCH) {
 		stretch = pango_font_description_get_stretch(font_desc);
 		FcPatternAddInteger(pattern, FC_WIDTH,
 				    _vte_fc_width_from_pango_stretch(stretch));
 	}
-
 	if (pango_mask & PANGO_FONT_MASK_STYLE) {
 		style = pango_font_description_get_style(font_desc);
 		FcPatternAddInteger(pattern, FC_SLANT,
 				    _vte_fc_slant_from_pango_style(style));
 	}
-
-	g_object_unref(G_OBJECT(context));
 }
 
 static void
@@ -193,129 +170,89 @@ _vte_fc_defaults_from_gtk(GtkWidget *widget, FcPattern *pattern,
 			  VteTerminalAntiAlias explicit_antialias)
 {
 	GtkSettings *settings;
-#if GTK_CHECK_VERSION(2,2,0)
-	GdkScreen *screen;
-#endif
-	GObjectClass *klass;
-	int i, antialias = -1, hinting = -1, dpi = -1;
-	char *rgba = NULL, *hintstyle = NULL;
+	gint antialias;
+	gint hinting;
+	char *rgba;
+	char *hintstyle;
+	gint dpi;
+	FcValue v;
 
-	/* Add any defaults configured for GTK+. */
-#if GTK_CHECK_VERSION(2,2,0)
-	if (gtk_widget_has_screen(widget)) {
-		screen = gtk_widget_get_screen(widget);
-	} else {
-		screen = gdk_display_get_default_screen(gtk_widget_get_display(widget));
-	}
-	settings = gtk_settings_get_for_screen(screen);
-#else
-	settings = gtk_settings_get_default();
-#endif
+	settings = gtk_widget_get_settings (widget);
 	if (settings == NULL) {
 		return;
 	}
 
 	/* Check that the properties we're looking at are defined. */
-	klass = G_OBJECT_CLASS(GTK_SETTINGS_GET_CLASS(settings));
-	if (g_object_class_find_property(klass, "gtk-xft-antialias") == NULL) {
+	if (g_object_class_find_property (G_OBJECT_GET_CLASS (settings),
+				"gtk-xft-antialias") == NULL) {
 		return;
 	}
 
-	/* Read the settings. */
-	g_object_get(G_OBJECT(settings),
-		     "gtk-xft-antialias", &antialias,
-		     "gtk-xft-dpi", &dpi,
-		     "gtk-xft-rgba", &rgba,
-		     "gtk-xft-hinting", &hinting,
-		     "gtk-xft-hintstyle", &hintstyle,
-		     NULL);
+	g_object_get (settings,
+		      "gtk-xft-antialias", &antialias,
+		      "gtk-xft-hinting", &hinting,
+		      "gtk-xft-hintstyle", &hintstyle,
+		      "gtk-xft-rgba", &rgba,
+		      "gtk-xft-dpi", &dpi,
+		      NULL);
+	
+	if (antialias >= 0 &&
+	    FcPatternGet (pattern, FC_ANTIALIAS, 0, &v) == FcResultNoMatch)
+	  FcPatternAddBool (pattern, FC_ANTIALIAS, antialias != 0);
+	
+	if (hinting >= 0 &&
+	    FcPatternGet (pattern, FC_HINTING, 0, &v) == FcResultNoMatch)
+	  FcPatternAddBool (pattern, FC_HINTING, hinting != 0);
+       
+#ifdef FC_HINT_STYLE 
+	if (hintstyle && FcPatternGet (pattern, FC_HINT_STYLE, 0, &v) == FcResultNoMatch)
+	  {
+	    int val = FC_HINT_FULL;	/* Quiet GCC */
+	    gboolean found = TRUE;
 
-	/* Pick up the antialiasing setting. */
-	if (antialias >= 0) {
-		FcPatternDel(pattern, FC_ANTIALIAS);
-		FcPatternAddBool(pattern, FC_ANTIALIAS, antialias > 0);
-	}
-	_vte_fc_set_antialias(pattern, explicit_antialias);
+	    if (strcmp (hintstyle, "hintnone") == 0)
+	      val = FC_HINT_NONE;
+	    else if (strcmp (hintstyle, "hintslight") == 0)
+	      val = FC_HINT_SLIGHT;
+	    else if (strcmp (hintstyle, "hintmedium") == 0)
+	      val = FC_HINT_MEDIUM;
+	    else if (strcmp (hintstyle, "hintfull") == 0)
+	      val = FC_HINT_FULL;
+	    else
+	      found = FALSE;
 
-	/* Pick up the configured DPI setting. */
-	if (dpi >= 0) {
-		FcPatternDel(pattern, FC_DPI);
-		FcPatternAddDouble(pattern, FC_DPI, dpi / 1024.0);
-	}
+	    if (found)
+	      FcPatternAddInteger (pattern, FC_HINT_STYLE, val);
+	  }
+#endif /* FC_HINT_STYLE */
 
-	/* Pick up the configured subpixel rendering setting. */
-	if (rgba != NULL) {
-		gboolean found;
+	if (rgba && FcPatternGet (pattern, FC_RGBA, 0, &v) == FcResultNoMatch)
+	  {
+	    int val = FC_RGBA_NONE;	/* Quiet GCC */
+	    gboolean found = TRUE;
 
-		i = FC_RGBA_NONE;
+	    if (strcmp (rgba, "none") == 0)
+	      val = FC_RGBA_NONE;
+	    else if (strcmp (rgba, "rgb") == 0)
+	      val = FC_RGBA_RGB;
+	    else if (strcmp (rgba, "bgr") == 0)
+	      val = FC_RGBA_BGR;
+	    else if (strcmp (rgba, "vrgb") == 0)
+	      val = FC_RGBA_VRGB;
+	    else if (strcmp (rgba, "vbgr") == 0)
+	      val = FC_RGBA_VBGR;
+	    else
+	      found = FALSE;
 
-		if (g_ascii_strcasecmp(rgba, "none") == 0) {
-			i = FC_RGBA_NONE;
-			found = TRUE;
-		} else
-		if (g_ascii_strcasecmp(rgba, "rgb") == 0) {
-			i = FC_RGBA_RGB;
-			found = TRUE;
-		} else
-		if (g_ascii_strcasecmp(rgba, "bgr") == 0) {
-			i = FC_RGBA_BGR;
-			found = TRUE;
-		} else
-		if (g_ascii_strcasecmp(rgba, "vrgb") == 0) {
-			i = FC_RGBA_VRGB;
-			found = TRUE;
-		} else
-		if (g_ascii_strcasecmp(rgba, "vbgr") == 0) {
-			i = FC_RGBA_VBGR;
-			found = TRUE;
-		} else {
-			found = FALSE;
-		}
-		if (found) {
-			FcPatternDel(pattern, FC_RGBA);
-			FcPatternAddInteger(pattern, FC_RGBA, i);
-		}
-		g_free(rgba);
-	}
+	    if (found)
+	      FcPatternAddInteger (pattern, FC_RGBA, val);
+	  }
 
-	/* Pick up the configured hinting setting. */
-	if (hinting >= 0) {
-		FcPatternDel(pattern, FC_HINTING);
-		FcPatternAddBool(pattern, FC_HINTING, hinting > 0);
-	}
+	if (dpi >= 0 && FcPatternGet (pattern, FC_DPI, 0, &v) == FcResultNoMatch)
+	  FcPatternAddDouble (pattern, FC_DPI, dpi / 1024.);
 
-#ifdef FC_HINT_STYLE
-	/* Pick up the default hinting style. */
-	if (hintstyle != NULL) {
-		gboolean found;
-
-		i = FC_HINT_NONE;
-
-		if (g_ascii_strcasecmp(hintstyle, "hintnone") == 0) {
-			i = FC_HINT_NONE;
-			found = TRUE;
-		} else
-		if (g_ascii_strcasecmp(hintstyle, "hintslight") == 0) {
-			i = FC_HINT_SLIGHT;
-			found = TRUE;
-		} else
-		if (g_ascii_strcasecmp(hintstyle, "hintmedium") == 0) {
-			i = FC_HINT_MEDIUM;
-			found = TRUE;
-		} else
-		if (g_ascii_strcasecmp(hintstyle, "hintfull") == 0) {
-			i = FC_HINT_FULL;
-			found = TRUE;
-		} else {
-			found = FALSE;
-		}
-		if (found) {
-			FcPatternDel(pattern, FC_HINT_STYLE);
-			FcPatternAddInteger(pattern, FC_HINT_STYLE, i);
-		}
-		g_free(hintstyle);
-	}
-#endif
+	g_free (hintstyle);
+	g_free (rgba);
 }
 
 static void
@@ -337,16 +274,6 @@ _vte_fc_defaults_from_rdb(GtkWidget *widget, FcPattern *pattern,
 			     &fcb) == FcResultNoMatch) {
 		antialias = _vte_rdb_get_antialias(widget);
 		FcPatternAddBool(pattern, FC_ANTIALIAS, antialias);
-	}
-	if (explicit_antialias != VTE_ANTI_ALIAS_USE_DEFAULT) {
-		FcBool aa;
-		if (FcPatternGetBool(pattern, FC_ANTIALIAS, 0,
-				     &aa) != FcResultNoMatch) {
-			FcPatternDel(pattern, FC_ANTIALIAS);
-		}
-		aa = (explicit_antialias == VTE_ANTI_ALIAS_FORCE_ENABLE) ?
-		     FcTrue : FcFalse;
-		FcPatternAddBool(pattern, FC_ANTIALIAS, aa);
 	}
 
 	/* Pick up the hinting setting. */
@@ -409,6 +336,8 @@ _vte_fc_defaults_from_rdb(GtkWidget *widget, FcPattern *pattern,
 		}
 	}
 #endif
+
+	_vte_rdb_release (widget);
 }
 
 /* Create a sorted set of fontconfig patterns from a Pango font description
@@ -417,7 +346,7 @@ gboolean
 _vte_fc_patterns_from_pango_font_desc(GtkWidget *widget,
 				      const PangoFontDescription *font_desc,
 				      VteTerminalAntiAlias antialias,
-				      GArray *pattern_array,
+				      GPtrArray *pattern_array,
 				      _vte_fc_defaults_cb defaults_cb,
 				      gpointer defaults_data)
 
@@ -469,7 +398,14 @@ _vte_fc_patterns_from_pango_font_desc(GtkWidget *widget,
 			_vte_fc_set_antialias(tmp, antialias);
 			save = FcPatternDuplicate(tmp);
 			FcPatternDestroy(tmp);
-			g_array_append_val(pattern_array, save);
+			g_ptr_array_add(pattern_array, save);
+#if defined(HAVE_FCSTRFREE) && defined(HAVE_FCNAMEUNPARSE)
+			_VTE_DEBUG_IF(VTE_DEBUG_MISC) {
+				FcChar8 *name = FcNameUnparse (save);
+				g_printerr("Added '%s' to fontset\n", name);
+				FcStrFree (name);
+			}
+#endif
 		}
 		FcFontSetDestroy(fontset);
 		ret = TRUE;
@@ -484,7 +420,14 @@ _vte_fc_patterns_from_pango_font_desc(GtkWidget *widget,
 			_vte_fc_set_antialias(tmp, antialias);
 			save = FcPatternDuplicate(tmp);
 			FcPatternDestroy(tmp);
-			g_array_append_val(pattern_array, save);
+			g_ptr_array_add(pattern_array, save);
+#if defined(HAVE_FCSTRFREE) && defined(HAVE_FCNAMEUNPARSE)
+			_VTE_DEBUG_IF(VTE_DEBUG_MISC) {
+				FcChar8 *name = FcNameUnparse (save);
+				g_printerr("Added '%s' to fontset\n", name);
+				FcStrFree (name);
+			}
+#endif
 			ret = TRUE;
 		} else {
 			ret = FALSE;
@@ -509,25 +452,25 @@ _vte_fc_connect_settings_changes(GtkWidget *widget, GCallback *changed_cb)
 	}
 
 	/* Check that the properties we're looking at are defined. */
-	klass = G_OBJECT_CLASS(GTK_SETTINGS_GET_CLASS(settings));
+	klass = G_OBJECT_GET_CLASS(settings);
 	if (g_object_class_find_property(klass, "gtk-xft-antialias") == NULL) {
 		return;
 	}
 
 	/* Start listening for changes to the fontconfig settings. */
-	g_signal_connect(G_OBJECT(settings),
+	g_signal_connect(settings,
 			 "notify::gtk-xft-antialias",
 			 G_CALLBACK(changed_cb), widget);
-	g_signal_connect(G_OBJECT(settings),
+	g_signal_connect(settings,
 			 "notify::gtk-xft-hinting",
 			 G_CALLBACK(changed_cb), widget);
-	g_signal_connect(G_OBJECT(settings),
+	g_signal_connect(settings,
 			 "notify::gtk-xft-hintstyle",
 			 G_CALLBACK(changed_cb), widget);
-	g_signal_connect(G_OBJECT(settings),
+	g_signal_connect(settings,
 			 "notify::gtk-xft-rgba",
 			 G_CALLBACK(changed_cb), widget);
-	g_signal_connect(G_OBJECT(settings),
+	g_signal_connect(settings,
 			 "notify::gtk-xft-dpi",
 			 G_CALLBACK(changed_cb), widget);
 }
@@ -544,7 +487,7 @@ _vte_fc_disconnect_settings_changes(GtkWidget *widget, GCallback *changed_cb)
 	}
 
 	/* Stop listening for changes to the fontconfig settings. */
-	g_signal_handlers_disconnect_matched(G_OBJECT(settings),
+	g_signal_handlers_disconnect_matched(settings,
 					     G_SIGNAL_MATCH_FUNC |
 					     G_SIGNAL_MATCH_DATA,
 					     0, 0, NULL,

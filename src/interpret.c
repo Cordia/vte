@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: interpret.c 1152 2005-03-14 14:43:47Z kmaraas $"
 #include "../config.h"
 #include <sys/types.h>
 #include <assert.h>
@@ -78,7 +77,7 @@ main(int argc, char **argv)
 		termcap = _vte_termcap_new("/etc/termcap");
 	}
 	buffer = _vte_buffer_new();
-	array = g_array_new(TRUE, TRUE, sizeof(gunichar));
+	array = g_array_new(FALSE, FALSE, sizeof(gunichar));
 
 	matcher = _vte_matcher_new(terminal, termcap);
 
@@ -87,7 +86,8 @@ main(int argc, char **argv)
 	while (fread(&c, 1, 1, infile) == 1) {
 		_vte_buffer_append(buffer, &c, 1);
 	}
-	_vte_iso2022_process(subst, buffer, array);
+	_vte_iso2022_process(subst, buffer->bytes,
+			_vte_buffer_length(buffer), array);
 
 	i = 0;
 	while (i <= array->len) {
@@ -148,7 +148,7 @@ main(int argc, char **argv)
 			}
 		}
 		if (values != NULL) {
-			_vte_matcher_free_params_array(values);
+			_vte_matcher_free_params_array(matcher, values);
 		}
 		g_print(")\n");
 		i += l;

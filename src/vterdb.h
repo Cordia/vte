@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vterdb.h 923 2003-05-28 23:45:09Z nalin $"
 
 #ifndef vte_rdbh_included
 #define vte_rdbh_included
@@ -30,6 +29,7 @@ gboolean _vte_rdb_get_antialias(GtkWidget *widget);
 gboolean _vte_rdb_get_hinting(GtkWidget *widget);
 const char *_vte_rdb_get_rgba(GtkWidget *widget);
 const char *_vte_rdb_get_hintstyle(GtkWidget *widget);
+void _vte_rdb_release (GtkWidget *widget);
 
 G_END_DECLS
 

@@ -19,8 +19,6 @@
 #ifndef vte_pty_h_included
 #define vte_pty_h_included
 
-#ident "$Id: pty.h 1080 2004-04-20 05:37:50Z nalin $"
-
 #include <sys/types.h>
 
 G_BEGIN_DECLS

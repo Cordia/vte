@@ -39,6 +39,7 @@
 #include <termios.h>
 #endif
 #include <unistd.h>
+#include <glib/gi18n-lib.h>
 
 #include "vte.h"
 #include "buffer.h"
@@ -51,23 +52,25 @@
 
 G_BEGIN_DECLS
 
-#ident "$Id: vte-private.h 1253 2006-03-08 20:31:13Z behdad $"
-
+#define VTE_CURSOR_OUTLINE		1
 #define VTE_PAD_WIDTH			1
 #define VTE_TAB_WIDTH			8
 #define VTE_LINE_WIDTH			1
-#define VTE_COLOR_SET_SIZE		8
+#define VTE_ROWS			24
+#define VTE_COLUMNS			80
+#define VTE_LEGACY_COLOR_SET_SIZE	8
 #define VTE_COLOR_PLAIN_OFFSET		0
 #define VTE_COLOR_BRIGHT_OFFSET		8
 #define VTE_COLOR_DIM_OFFSET		16
-#define VTE_DEF_FG			24
-#define VTE_DEF_BG			25
-#define VTE_BOLD_FG			26
-#define VTE_DIM_FG			27
-#define VTE_DEF_HL			28
-#define VTE_CUR_BG			29
+#define VTE_DEF_FG			256
+#define VTE_DEF_BG			257
+#define VTE_BOLD_FG			258
+#define VTE_DIM_FG			259
+#define VTE_DEF_HL                      260
+#define VTE_CUR_BG			261
+
 #define VTE_SATURATION_MAX		10000
-#define VTE_SCROLLBACK_MIN		100
+#define VTE_SCROLLBACK_INIT		100
 #define VTE_DEFAULT_CURSOR		GDK_XTERM
 #define VTE_MOUSING_CURSOR		GDK_LEFT_PTR
 #define VTE_TAB_MAX			999
@@ -79,34 +82,46 @@ G_BEGIN_DECLS
 #define VTE_FX_PRIORITY			G_PRIORITY_DEFAULT_IDLE
 #define VTE_REGCOMP_FLAGS		REG_EXTENDED
 #define VTE_REGEXEC_FLAGS		0
-#define VTE_INPUT_CHUNK_SIZE		0x1000
+#define VTE_INPUT_CHUNK_SIZE		0x2000
+#define VTE_MAX_INPUT_READ		0x1000
 #define VTE_INVALID_BYTE		'?'
-#define VTE_COALESCE_TIMEOUT		10
 #define VTE_DISPLAY_TIMEOUT		10
-#define VTE_UPDATE_TIMEOUT		10
-#define VTE_UPDATE_REPEAT_TIMEOUT	25
+#define VTE_UPDATE_TIMEOUT		15
+#define VTE_UPDATE_REPEAT_TIMEOUT	30
+#define VTE_MAX_PROCESS_TIME		100
+#define VTE_CELL_BBOX_SLACK		1
 
 /* The structure we use to hold characters we're supposed to display -- this
  * includes any supported visible attributes. */
 struct vte_charcell {
 	gunichar c;		/* The Unicode character. */
-	guint32 columns: 11;	/* Number of visible columns (as determined
-				   by g_unicode_iswide(c)).  Use as many bits
-				   as possible without making this structure
-				   grow any larger. */
-	guint32 fragment: 1;	/* The nth fragment of a wide character. */
-	guint32 fore: 5;	/* Indices in the color palette for the */
-	guint32 back: 5;	/* foreground and background of the cell. */
-	guint32 standout: 1;	/* Single-bit attributes. */
-	guint32 underline: 1;
-	guint32 strikethrough: 1;
-	guint32 reverse: 1;
-	guint32 blink: 1;
-	guint32 half: 1;
-	guint32 bold: 1;
-	guint32 invisible: 1;
-	guint32 protect: 1;
-	guint32 alternate: 1;
+
+	struct vte_charcell_attr {
+		guint32 columns: 4;	/* Number of visible columns
+					   (as determined by g_unicode_iswide(c)).
+					   Also abused for tabs; bug 353610
+					   Keep at least 4 for tabs to work
+					   */
+		guint32 fore: 9;	/* Index into color palette */
+		guint32 back: 9;	/* Index into color palette. */
+
+		guint32 fragment: 1;	/* A continuation cell. */
+		guint32 standout: 1;	/* Single-bit attributes. */
+		guint32 underline: 1;
+		guint32 strikethrough: 1;
+
+		guint32 reverse: 1;
+		guint32 blink: 1;
+		guint32 half: 1;
+		guint32 bold: 1;
+
+		guint32 invisible: 1;
+		/* unused; bug 499893
+		guint32 protect: 1;
+		 */
+
+		/* 31 bits */
+	} attr;
 };
 
 /* A match regex, with a tag. */
@@ -162,23 +177,28 @@ struct _VteTerminalPrivate {
 	/* PTY handling data. */
 	const char *shell;		/* shell we started */
 	int pty_master;			/* pty master descriptor */
-	GIOChannel *pty_input;		/* master input watch */
+	GIOChannel *pty_channel;	/* master channel */
 	guint pty_input_source;
-	GIOChannel *pty_output;		/* master output watch */
 	guint pty_output_source;
-	pid_t pty_pid;			/* pid of child using pty slave */
+	gboolean pty_input_active;
+	GPid pty_pid;			/* pid of child using pty slave */
 	VteReaper *pty_reaper;
 
 	/* Input data queues. */
 	const char *encoding;		/* the pty's encoding */
 	struct _vte_iso2022_state *iso2022;
-	struct _vte_buffer *incoming;	/* pending bytestream */
+	struct _vte_incoming_chunk{
+		struct _vte_incoming_chunk *next;
+		gint len;
+		guchar data[VTE_INPUT_CHUNK_SIZE
+			- sizeof(struct _vte_incoming_chunk *) - sizeof(gint)];
+	} *incoming;			/* pending bytestream */
 	GArray *pending;		/* pending characters */
-	gint coalesce_timeout;
-	gint display_timeout;
-	gint update_timer;
-	GdkRegion *update_region;
-
+	GSList *update_regions;
+	gboolean invalidated_all;	/* pending refresh of entire terminal */
+	GList *active;                  /* is the terminal processing data */
+	glong input_bytes;
+	glong max_input_bytes;
 
 	/* Output data queue. */
 	struct _vte_buffer *outgoing;	/* pending input characters */
@@ -221,9 +241,12 @@ struct _VteTerminalPrivate {
 							   fore/back with no
 							   character data */
 		struct vte_charcell basic_defaults;	/* original defaults */
+		gboolean alternate_charset;
 		gboolean status_line;
 		GString *status_line_contents;
+		gboolean status_line_changed;
 	} normal_screen, alternate_screen, *screen;
+	VteRowData *free_row;
 
 	/* Selection information. */
 	GArray *word_chars;
@@ -231,6 +254,8 @@ struct _VteTerminalPrivate {
 	gboolean selecting;
 	gboolean selecting_restart;
 	gboolean selecting_had_delta;
+	gboolean block_mode;
+	gboolean had_block_mode;
 	char *selection;
 	enum vte_selection_type {
 		selection_type_char,
@@ -256,21 +281,21 @@ struct _VteTerminalPrivate {
 	gboolean smooth_scroll;
 	GHashTable *tabstops;
 	gboolean text_modified_flag;
-	glong text_inserted_count;
-	glong text_deleted_count;
+	gboolean text_inserted_flag;
+	gboolean text_deleted_flag;
 
 	/* Scrolling options. */
 	gboolean scroll_background;
-	long scroll_lock_count;
 	gboolean scroll_on_output;
 	gboolean scroll_on_keystroke;
 	long scrollback_lines;
 
 	/* Cursor blinking. */
-	int cursor_force_fg;
+	gboolean cursor_blink_state;
 	gboolean cursor_blinks;
-	gint cursor_blink_tag;
+	guint cursor_blink_tag;
 	gint cursor_blink_timeout;
+	gint64 cursor_blink_time;
 	gboolean cursor_visible;
 
 	/* Input device options. */
@@ -289,15 +314,18 @@ struct _VteTerminalPrivate {
 	char *match_contents;
 	GArray *match_attributes;
 	GArray *match_regexes;
-	int match_previous;
+	char *match;
+	int match_tag;
 	struct {
 		long row, column;
 	} match_start, match_end;
+	gboolean show_match;
 
 	/* Data used when rendering the text which does not require server
 	 * resources and which can be kept after unrealizing. */
 	PangoFontDescription *fontdesc;
 	VteTerminalAntiAlias fontantialias;
+	gboolean fontdirty;
 	GtkSettings *connected_settings;
 
 	/* Data used when rendering the text which reflects server resources
@@ -328,46 +356,59 @@ struct _VteTerminalPrivate {
 	gboolean accessible_emit;
 
 	/* Adjustment updates pending. */
-	gboolean adjustment_changed_tag;
+	gboolean adjustment_changed_pending;
+	gboolean adjustment_value_changed_pending;
+
+	gboolean cursor_moved_pending;
+	gboolean contents_changed_pending;
+
+	/* window name changes */
+	gchar *window_title_changed;
+	gchar *icon_title_changed;
 
 	/* Background images/"transparency". */
+	guint root_pixmap_changed_tag;
 	gboolean bg_update_pending;
 	gboolean bg_transparent;
 	GdkPixbuf *bg_pixbuf;
 	char *bg_file;
-	guint bg_update_tag;
 	GdkColor bg_tint_color;
-	long bg_saturation;	/* out of VTE_SATURATION_MAX */
+	guint16 bg_saturation;	/* out of VTE_SATURATION_MAX */
+	guint16 bg_opacity;
 
 	/* Key modifiers. */
 	GdkModifierType modifiers;
 
 	/* Obscured? state. */
 	GdkVisibilityState visibility_state;
+
+	/* Font stuff. */
+	gboolean has_fonts;
+	glong line_thickness;
+	glong underline_position;
+	glong strikethrough_position;
 };
 
 
-void _vte_terminal_ensure_cursor(VteTerminal *terminal, gboolean current);
+VteRowData *_vte_terminal_ensure_row(VteTerminal *terminal);
 void _vte_terminal_set_pointer_visible(VteTerminal *terminal, gboolean visible);
 void _vte_invalidate_all(VteTerminal *terminal);
 void _vte_invalidate_cells(VteTerminal *terminal,
 			   glong column_start, gint column_count,
 			   glong row_start, gint row_count);
-void _vte_invalidate_cursor_once(gpointer data, gboolean periodic);
+void _vte_invalidate_cell(VteTerminal *terminal, glong col, glong row);
+void _vte_invalidate_cursor_once(VteTerminal *terminal, gboolean periodic);
 VteRowData * _vte_new_row_data(VteTerminal *terminal);
 VteRowData * _vte_new_row_data_sized(VteTerminal *terminal, gboolean fill);
-void _vte_terminal_adjust_adjustments(VteTerminal *terminal, gboolean immediate);
-void _vte_terminal_emit_contents_changed(VteTerminal *terminal);
-void _vte_terminal_emit_status_line_changed(VteTerminal *terminal);
+VteRowData * _vte_reset_row_data (VteTerminal *terminal, VteRowData *row, gboolean fill);
+void _vte_free_row_data(VteRowData *row);
+void _vte_terminal_adjust_adjustments(VteTerminal *terminal);
+void _vte_terminal_queue_contents_changed(VteTerminal *terminal);
 void _vte_terminal_emit_text_deleted(VteTerminal *terminal);
 void _vte_terminal_emit_text_inserted(VteTerminal *terminal);
-void _vte_terminal_insert_char(VteTerminal *terminal, gunichar c,
+gboolean _vte_terminal_insert_char(VteTerminal *terminal, gunichar c,
 			       gboolean force_insert_mode,
-			       gboolean invalidate_cells,
-			       gboolean paint_cells,
-			       gboolean ensure_after,
-			       gint forced_width);
-void _vte_terminal_match_contents_clear(VteTerminal *terminal);
+			       gboolean invalidate_cells);
 void _vte_terminal_scroll_region(VteTerminal *terminal,
 				 long row, glong count, glong delta);
 void _vte_terminal_set_default_attributes(VteTerminal *terminal);
@@ -376,14 +417,7 @@ gboolean _vte_terminal_get_tabstop(VteTerminal *terminal, int column);
 void _vte_terminal_set_tabstop(VteTerminal *terminal, int column);
 void _vte_terminal_update_insert_delta(VteTerminal *terminal);
 
-
-#ifdef ENABLE_NLS
-#include <libintl.h>
-#define _(String) dgettext(PACKAGE, String)
-#else
-#define _(String) String
-#define bindtextdomain(package,dir)
-#endif
+void _vte_terminal_inline_error_message(VteTerminal *terminal, const char *format, ...) G_GNUC_PRINTF(2,3);
 
 G_END_DECLS
 

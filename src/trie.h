@@ -21,7 +21,6 @@
 #ifndef vte_trie_h_included
 #define vte_trie_h_included
 
-#ident "$Id: trie.h 505 2002-12-10 00:08:32Z nalin $"
 
 #include <glib.h>
 #include <glib-object.h>
@@ -58,6 +57,8 @@ const char *_vte_trie_match(struct _vte_trie *trie,
 
 /* Print the contents of the trie (mainly for diagnostic purposes). */
 void _vte_trie_print(struct _vte_trie *trie);
+
+extern const struct _vte_matcher_class _vte_matcher_trie;
 
 G_END_DECLS
 

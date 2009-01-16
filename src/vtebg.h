@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vtebg.h 901 2003-05-19 22:48:58Z nalin $"
 
 #ifndef vte_vtebg_included
 #define vte_vtebg_included
@@ -30,6 +29,7 @@ struct VteBgPrivate;
 typedef struct _VteBg VteBg;
 struct _VteBg {
 	GObject parent;
+	GdkScreen *screen;
 	GdkPixmap *root_pixmap;
 	struct VteBgNative *native;
 	struct VteBgPrivate *pvt;
@@ -50,7 +50,7 @@ struct _VteBgClass {
 
 GType vte_bg_get_type(void);
 
-VteBg *vte_bg_get(void);
+VteBg *vte_bg_get_for_screen(GdkScreen *screen);
 
 enum VteBgSourceType {
 	VTE_BG_SOURCE_NONE,

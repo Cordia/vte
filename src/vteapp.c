@@ -16,10 +16,10 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vteapp.c 1265 2006-03-15 11:02:59Z behdad $"
 
 #include "../config.h"
 
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <errno.h>
@@ -28,16 +28,13 @@
 #include <unistd.h>
 #include <gtk/gtk.h>
 #include <glib-object.h>
-#ifdef HAVE_XFT2
-#include <fontconfig/fontconfig.h>
-#endif
 #include "debug.h"
 #include "vte.h"
 
 #include <glib/gi18n-lib.h>
 
-#define DINGUS1 "(((news|telnet|nttp|file|http|ftp|https)://)|(www|ftp)[-A-Za-z0-9]*\\.)[-A-Za-z0-9\\.]+(:[0-9]*)?"
-#define DINGUS2 "(((news|telnet|nttp|file|http|ftp|https)://)|(www|ftp)[-A-Za-z0-9]*\\.)[-A-Za-z0-9\\.]+(:[0-9]*)?/[-A-Za-z0-9_\\$\\.\\+\\!\\*\\(\\),;:@&=\\?/~\\#\\%]*[^]'\\.}>\\) ,\\\"]"
+#define DINGUS1 "(((news|telnet|nntp|file|http|ftp|https)://)|(www|ftp)[-A-Za-z0-9]*\\.)[-A-Za-z0-9\\.]+(:[0-9]*)?"
+#define DINGUS2 "(((news|telnet|nntp|file|http|ftp|https)://)|(www|ftp)[-A-Za-z0-9]*\\.)[-A-Za-z0-9\\.]+(:[0-9]*)?/[-A-Za-z0-9_\\$\\.\\+\\!\\*\\(\\),;:@&=\\?/~\\#\\%]*[^]'\\.}>\\) ,\\\"]"
 
 static void
 window_title_changed(GtkWidget *widget, gpointer win)
@@ -79,15 +76,51 @@ char_size_changed(GtkWidget *widget, guint width, guint height, gpointer data)
 
 	terminal = VTE_TERMINAL(widget);
 	window = GTK_WINDOW(data);
+	if (!GTK_WIDGET_REALIZED (window))
+		return;
 
 	vte_terminal_get_padding(terminal, &xpad, &ypad);
 
-	geometry.width_inc = terminal->char_width;
-	geometry.height_inc = terminal->char_height;
+	geometry.width_inc = width;
+	geometry.height_inc = height;
 	geometry.base_width = xpad;
 	geometry.base_height = ypad;
-	geometry.min_width = xpad + terminal->char_width * 2;
-	geometry.min_height = ypad + terminal->char_height * 2;
+	geometry.min_width = xpad + width * 2;
+	geometry.min_height = ypad + height * 2;
+
+	gtk_window_set_geometry_hints(window, widget, &geometry,
+				      GDK_HINT_RESIZE_INC |
+				      GDK_HINT_BASE_SIZE |
+				      GDK_HINT_MIN_SIZE);
+}
+
+static void
+char_size_realized(GtkWidget *widget, gpointer data)
+{
+	VteTerminal *terminal;
+	GtkWindow *window;
+	GdkGeometry geometry;
+	guint width, height;
+	int xpad, ypad;
+
+	g_assert(GTK_IS_WINDOW(data));
+	g_assert(VTE_IS_TERMINAL(widget));
+
+	terminal = VTE_TERMINAL(widget);
+	window = GTK_WINDOW(data);
+	if (!GTK_WIDGET_REALIZED (window))
+		return;
+
+	vte_terminal_get_padding(terminal, &xpad, &ypad);
+
+	width = vte_terminal_get_char_width (terminal);
+	height = vte_terminal_get_char_height (terminal);
+	geometry.width_inc = width;
+	geometry.height_inc = height;
+	geometry.base_width = xpad;
+	geometry.base_height = ypad;
+	geometry.min_width = xpad + width * 2;
+	geometry.min_height = ypad + height * 2;
 
 	gtk_window_set_geometry_hints(window, widget, &geometry,
 				      GDK_HINT_RESIZE_INC |
@@ -111,20 +144,12 @@ destroy_and_quit(GtkWidget *widget, gpointer data)
 static void
 destroy_and_quit_eof(GtkWidget *widget, gpointer data)
 {
-#ifdef VTE_DEBUG
-	if (_vte_debug_on(VTE_DEBUG_MISC)) {
-		g_print("Detected EOF.\n");
-	}
-#endif
+	_vte_debug_print(VTE_DEBUG_MISC, "Detected EOF.\n");
 }
 static void
 destroy_and_quit_exited(GtkWidget *widget, gpointer data)
 {
-#ifdef VTE_DEBUG
-	if (_vte_debug_on(VTE_DEBUG_MISC)) {
-		g_print("Detected child exit.\n");
-	}
-#endif
+	_vte_debug_print(VTE_DEBUG_MISC, "Detected child exit.\n");
 	destroy_and_quit(widget, data);
 }
 
@@ -356,7 +381,7 @@ take_xconsole_ownership(GtkWidget *widget, gpointer data)
 	char *name, hostname[255];
 	GdkAtom atom;
 	GtkClipboard *clipboard;
-	GtkTargetEntry targets[] = {
+	const GtkTargetEntry targets[] = {
 		{"UTF8_STRING", 0, 0},
 		{"COMPOUND_TEXT", 0, 0},
 		{"TEXT", 0, 0},
@@ -368,12 +393,8 @@ take_xconsole_ownership(GtkWidget *widget, gpointer data)
 
 	name = g_strdup_printf("MIT_CONSOLE_%s", hostname);
 	atom = gdk_atom_intern(name, FALSE);
-#if GTK_CHECK_VERSION(2,2,0)
 	clipboard = gtk_clipboard_get_for_display(gtk_widget_get_display(widget),
 						  atom);
-#else
-	clipboard = gtk_clipboard_get(atom);
-#endif
 	g_free(name);
 
 	gtk_clipboard_set_with_owner(clipboard,
@@ -393,7 +414,10 @@ add_weak_pointer(GObject *object, GtkWidget **target)
 int
 main(int argc, char **argv)
 {
+	GdkScreen *screen;
+	GdkColormap *colormap;
 	GtkWidget *window, *hbox, *scrollbar, *widget;
+	VteTerminal *terminal;
 	char *env_add[] = {
 #ifdef VTE_DEBUG
 		"FOO=BAR", "BOO=BIZ",
@@ -401,47 +425,142 @@ main(int argc, char **argv)
 		NULL};
 	const char *background = NULL;
 	gboolean transparent = FALSE, audible = TRUE, blink = TRUE,
-		 debug = FALSE, dingus = FALSE, geometry = TRUE, dbuffer = TRUE,
+		 debug = FALSE, dingus = FALSE, dbuffer = TRUE,
 		 console = FALSE, scroll = FALSE, keep = FALSE,
 		 icon_title = FALSE, shell = TRUE, highlight_set = FALSE,
-		 cursor_set = FALSE;
-	VteTerminalAntiAlias antialias = VTE_ANTI_ALIAS_USE_DEFAULT;
-	long lines = 100;
+		 cursor_set = FALSE, reverse = FALSE, use_geometry_hints = TRUE,
+		 antialias = TRUE;
+        char *geometry = NULL;
+	gint lines = 100;
 	const char *message = "Launching interactive shell...\r\n";
 	const char *font = NULL;
-	const char *terminal = NULL;
+	const char *termcap = NULL;
 	const char *command = NULL;
 	const char *working_directory = NULL;
-	char **argv2;
-	int opt;
-	int i, j;
-	GList *args = NULL;
 	GdkColor fore, back, tint, highlight, cursor;
-	const char *usage = "Usage: %s "
-			    "[ [-B image] | [-T] ] "
-			    "[-C] "
-			    "[-D] "
-			    "[-2] "
-			    "[-a] "
-			    "[-b] "
-			    "[-c command] "
-			    "[-d] "
-			    "[-f font] "
-			    "[-g] "
-			    "[-h] "
-			    "[-i] "
-			    "[-k] "
-			    "[-n] "
-			    "[-r] "
-			    "[-s] "
-			    "[-t terminaltype]\n";
-	back.red = back.green = back.blue = 0xffff;
-	fore.red = fore.green = fore.blue = 0x0000;
-	highlight.red = highlight.green = highlight.blue = 0xc000;
-	cursor.red = 0xffff;
-	cursor.green = cursor.blue = 0x8000;
-	tint.red = tint.green = tint.blue = 0;
-	tint = back;
+	const GOptionEntry options[]={
+		{
+			"antialias", 'A', G_OPTION_FLAG_REVERSE,
+			G_OPTION_ARG_NONE, &antialias,
+			"Disable the use of anti-aliasing", NULL
+		},
+		{
+			"background", 'B', 0,
+			G_OPTION_ARG_FILENAME, &background,
+			"Specify a background image", NULL
+		},
+		{
+			"console", 'C', 0,
+			G_OPTION_ARG_NONE, &console,
+			"Watch /dev/console", NULL
+		},
+		{
+			"dingus", 'D', 0,
+			G_OPTION_ARG_NONE, &dingus,
+			"Highlight URLs inside the terminal", NULL
+		},
+		{
+			"shell", 'S', G_OPTION_FLAG_REVERSE,
+			G_OPTION_ARG_NONE, &shell,
+			"Disable spawning a shell inside the terminal", NULL
+		},
+		{
+			"transparent", 'T', 0,
+			G_OPTION_ARG_NONE, &transparent,
+			"Enable the use of a transparent background", NULL
+		},
+		{
+			"double-buffer", '2', G_OPTION_FLAG_REVERSE,
+			G_OPTION_ARG_NONE, &dbuffer,
+			"Disable double-buffering", NULL
+		},
+		{
+			"audible", 'a', G_OPTION_FLAG_REVERSE,
+			G_OPTION_ARG_NONE, &audible,
+			"Use visible, instead of audible, terminal bell",
+			NULL
+		},
+		{
+			"blink", 'b', G_OPTION_FLAG_REVERSE,
+			G_OPTION_ARG_NONE, &blink,
+			"Disable the blinking cursor", NULL
+		},
+		{
+			"command", 'c', 0,
+			G_OPTION_ARG_STRING, &command,
+			"Execute a command in the terminal", NULL
+		},
+		{
+			"debug", 'd', 0,
+			G_OPTION_ARG_NONE, &debug,
+			"Enable various debugging checks", NULL
+		},
+		{
+			"font", 'f', 0,
+			G_OPTION_ARG_STRING, &font,
+			"Specify a font to use", NULL
+		},
+		{
+			"geometry", 'g', 0,
+			G_OPTION_ARG_STRING, &geometry,
+			"Set the size (in characters) and position", "GEOMETRY"
+		},
+		{
+			"highlight", 'h', 0,
+			G_OPTION_ARG_NONE, &highlight_set,
+			"Enable the cursor highlighting", NULL
+		},
+		{
+			"icon-title", 'i', 0,
+			G_OPTION_ARG_NONE, &icon_title,
+			"Enable the setting of the icon title", NULL
+		},
+		{
+			"keep", 'k', 0,
+			G_OPTION_ARG_NONE, &keep,
+			"Live on after the window closes", NULL
+		},
+		{
+			"scrollback-lines", 'n', 0,
+			G_OPTION_ARG_INT, &lines,
+			"Specify the number of scrollback-lines", NULL
+		},
+		{
+			"color-cursor", 'r', 0,
+			G_OPTION_ARG_NONE, &cursor_set,
+			"Enable a colored cursor", NULL
+		},
+		{
+			"scroll-background", 's', 0,
+			G_OPTION_ARG_NONE, &scroll,
+			"Enable a scrolling background", NULL
+		},
+		{
+			"termcap", 't', 0,
+			G_OPTION_ARG_STRING, &termcap,
+			"Specify the terminal emulation to use", NULL
+		},
+		{
+			"working-directory", 'w', 0,
+			G_OPTION_ARG_FILENAME, &working_directory,
+			"Specify the initial working directory of the terminal",
+			NULL
+		},
+		{
+			"reverse", 0, 0,
+			G_OPTION_ARG_NONE, &reverse,
+			"Reverse foreground/background colors", NULL
+		},
+		{
+			"no-geometry-hints", 'G', G_OPTION_FLAG_REVERSE,
+			G_OPTION_ARG_NONE, &use_geometry_hints,
+			"Allow the terminal to be resized to any dimension, not constrained to fit to an integer multiple of characters",
+			NULL
+		},
+		{ NULL }
+	};
+	GOptionContext *context;
+	GError *error = NULL;
 
 	/* Have to do this early. */
 	if (getenv("VTE_PROFILE_MEMORY")) {
@@ -450,118 +569,32 @@ main(int argc, char **argv)
 		}
 	}
 
-	/* Pull out long options for GTK+. */
-	for (i = j = 1; i < argc; i++) {
-		if (g_ascii_strncasecmp("--", argv[i], 2) == 0) {
-			args = g_list_append(args, argv[i]);
-			for (j = i; j < argc; j++) {
-				argv[j] = argv[j + 1];
-			}
-			argc--;
-			i--;
-		}
-	}
-	argv2 = g_malloc0(sizeof(char*) * (g_list_length(args) + 2));
-	argv2[0] = argv[0];
-	for (i = 1; i <= g_list_length(args); i++) {
-		argv2[i] = (char*) g_list_nth(args, i - 1);
-	}
-	argv2[i] = NULL;
-	g_assert(i < (g_list_length(args) + 2));
-
-	/* Parse some command-line options. */
-	while ((opt = getopt(argc, argv,
-			     "AB:CDST2abc:df:ghkn:rst:w:-")) != -1) {
-		gboolean bail = FALSE;
-		switch (opt) {
-			case 'A':
-				switch (antialias) {
-				case VTE_ANTI_ALIAS_FORCE_DISABLE:
-					antialias = VTE_ANTI_ALIAS_FORCE_ENABLE;
-					break;
-				case VTE_ANTI_ALIAS_USE_DEFAULT:
-				case VTE_ANTI_ALIAS_FORCE_ENABLE:
-					antialias = VTE_ANTI_ALIAS_FORCE_DISABLE;
-					break;
-				}
-				break;
-			case 'B':
-				background = optarg;
-				break;
-			case 'C':
-				console = TRUE;
-				break;
-			case 'D':
-				dingus = TRUE;
-				break;
-			case 'S':
-				shell = !shell;
-				break;
-			case 'T':
-				transparent = TRUE;
-				break;
-			case '2':
-				dbuffer = !dbuffer;
-				break;
-			case 'a':
-				audible = !audible;
-				break;
-			case 'b':
-				blink = !blink;
-				break;
-			case 'c':
-				command = optarg;
-				break;
-			case 'd':
-				debug = !debug;
-				break;
-			case 'f':
-				font = optarg;
-				break;
-			case 'g':
-				geometry = !geometry;
-				break;
-			case 'h':
-				highlight_set = !highlight_set;
-				break;
-			case 'i':
-				icon_title = !icon_title;
-				break;
-			case 'k':
-				keep = !keep;
-				break;
-			case 'n':
-				lines = atol(optarg);
-				if (lines == 0) {
-					lines = 100;
-				}
-				break;
-			case 'r':
-				cursor_set = !cursor_set;
-				break;
-			case 's':
-				scroll = !scroll;
-				break;
-			case 't':
-				terminal = optarg;
-				break;
-			case 'w':
-				working_directory = optarg;
-				break;
-			case '-':
-				bail = TRUE;
-				break;
-			default:
-				g_print(usage, argv[0]);
-				exit(1);
-				break;
-		}
-		if (bail) {
-			break;
-		}
+	context = g_option_context_new (" - test VTE terminal emulation");
+	g_option_context_add_main_entries (context, options, NULL);
+	g_option_context_add_group (context, gtk_get_option_group (TRUE));
+	g_option_context_parse (context, &argc, &argv, &error);
+	g_option_context_free (context);
+	if (error != NULL) {
+		g_printerr ("Failed to parse command line arguments: %s\n",
+				error->message);
+		g_error_free (error);
+		return 1;
 	}
 
-	gtk_init(&argc, &argv);
+	if (!reverse) {
+		back.red = back.green = back.blue = 0xffff;
+		fore.red = fore.green = fore.blue = 0x0000;
+	} else {
+		back.red = back.green = back.blue = 0x0000;
+		fore.red = fore.green = fore.blue = 0xffff;
+	}
+
+	highlight.red = highlight.green = highlight.blue = 0xc000;
+	cursor.red = 0xffff;
+	cursor.green = cursor.blue = 0x8000;
+	tint.red = tint.green = tint.blue = 0;
+	tint = back;
+
 	gdk_window_set_debug_updates(debug);
 
 	/* Create a window to hold the scrolling shell, and hook its
@@ -569,8 +602,14 @@ main(int argc, char **argv)
 	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	gtk_container_set_resize_mode(GTK_CONTAINER(window),
 				      GTK_RESIZE_IMMEDIATE);
-	g_signal_connect(G_OBJECT(window), "delete_event",
-			 GTK_SIGNAL_FUNC(deleted_and_quit), window);
+	g_signal_connect(window, "delete-event",
+			 G_CALLBACK(deleted_and_quit), window);
+
+	/* Set ARGB colormap */
+	screen = gtk_widget_get_screen (window);
+	colormap = gdk_screen_get_rgba_colormap (screen);
+	if (colormap)
+	    gtk_widget_set_colormap(window, colormap);
 
 	/* Create a box to hold everything. */
 	hbox = gtk_hbox_new(0, FALSE);
@@ -578,6 +617,7 @@ main(int argc, char **argv)
 
 	/* Create the terminal widget and add it to the scrolling shell. */
 	widget = vte_terminal_new();
+	terminal = VTE_TERMINAL (widget);
 	if (!dbuffer) {
 		gtk_widget_set_double_buffered(widget, dbuffer);
 	}
@@ -585,111 +625,112 @@ main(int argc, char **argv)
 
 	/* Connect to the "char_size_changed" signal to set geometry hints
 	 * whenever the font used by the terminal is changed. */
-	if (geometry) {
+	if (use_geometry_hints) {
 		char_size_changed(widget, 0, 0, window);
-		g_signal_connect(G_OBJECT(widget), "char-size-changed",
+		g_signal_connect(widget, "char-size-changed",
 				 G_CALLBACK(char_size_changed), window);
+		g_signal_connect(widget, "realize",
+				 G_CALLBACK(char_size_realized), window);
 	}
 
 	/* Connect to the "window_title_changed" signal to set the main
 	 * window's title. */
-	g_signal_connect(G_OBJECT(widget), "window-title-changed",
+	g_signal_connect(widget, "window-title-changed",
 			 G_CALLBACK(window_title_changed), window);
 	if (icon_title) {
-		g_signal_connect(G_OBJECT(widget), "icon-title-changed",
+		g_signal_connect(widget, "icon-title-changed",
 				 G_CALLBACK(icon_title_changed), window);
 	}
 
 	/* Connect to the "eof" signal to quit when the session ends. */
-	g_signal_connect(G_OBJECT(widget), "eof",
+	g_signal_connect(widget, "eof",
 			 G_CALLBACK(destroy_and_quit_eof), window);
-	g_signal_connect(G_OBJECT(widget), "child-exited",
+	g_signal_connect(widget, "child-exited",
 			 G_CALLBACK(destroy_and_quit_exited), window);
 
 	/* Connect to the "status-line-changed" signal. */
-	g_signal_connect(G_OBJECT(widget), "status-line-changed",
+	g_signal_connect(widget, "status-line-changed",
 			 G_CALLBACK(status_line_changed), widget);
 
 	/* Connect to the "button-press" event. */
-	g_signal_connect(G_OBJECT(widget), "button-press-event",
+	g_signal_connect(widget, "button-press-event",
 			 G_CALLBACK(button_pressed), widget);
 
 	/* Connect to application request signals. */
-	g_signal_connect(G_OBJECT(widget), "iconify-window",
+	g_signal_connect(widget, "iconify-window",
 			 G_CALLBACK(iconify_window), window);
-	g_signal_connect(G_OBJECT(widget), "deiconify-window",
+	g_signal_connect(widget, "deiconify-window",
 			 G_CALLBACK(deiconify_window), window);
-	g_signal_connect(G_OBJECT(widget), "raise-window",
+	g_signal_connect(widget, "raise-window",
 			 G_CALLBACK(raise_window), window);
-	g_signal_connect(G_OBJECT(widget), "lower-window",
+	g_signal_connect(widget, "lower-window",
 			 G_CALLBACK(lower_window), window);
-	g_signal_connect(G_OBJECT(widget), "maximize-window",
+	g_signal_connect(widget, "maximize-window",
 			 G_CALLBACK(maximize_window), window);
-	g_signal_connect(G_OBJECT(widget), "restore-window",
+	g_signal_connect(widget, "restore-window",
 			 G_CALLBACK(restore_window), window);
-	g_signal_connect(G_OBJECT(widget), "refresh-window",
+	g_signal_connect(widget, "refresh-window",
 			 G_CALLBACK(refresh_window), window);
-	g_signal_connect(G_OBJECT(widget), "resize-window",
+	g_signal_connect(widget, "resize-window",
 			 G_CALLBACK(resize_window), window);
-	g_signal_connect(G_OBJECT(widget), "move-window",
+	g_signal_connect(widget, "move-window",
 			 G_CALLBACK(move_window), window);
 
 	/* Connect to font tweakage. */
-	g_signal_connect(G_OBJECT(widget), "increase-font-size",
+	g_signal_connect(widget, "increase-font-size",
 			 G_CALLBACK(increase_font_size), window);
-	g_signal_connect(G_OBJECT(widget), "decrease-font-size",
+	g_signal_connect(widget, "decrease-font-size",
 			 G_CALLBACK(decrease_font_size), window);
 
 	/* Create the scrollbar for the widget. */
-	scrollbar = gtk_vscrollbar_new((VTE_TERMINAL(widget))->adjustment);
+	scrollbar = gtk_vscrollbar_new(terminal->adjustment);
 	gtk_box_pack_start(GTK_BOX(hbox), scrollbar, FALSE, FALSE, 0);
 
 	/* Set some defaults. */
-	vte_terminal_set_audible_bell(VTE_TERMINAL(widget), audible);
-	vte_terminal_set_visible_bell(VTE_TERMINAL(widget), !audible);
-	vte_terminal_set_cursor_blinks(VTE_TERMINAL(widget), blink);
-	vte_terminal_set_scroll_background(VTE_TERMINAL(widget), scroll);
-	vte_terminal_set_scroll_on_output(VTE_TERMINAL(widget), FALSE);
-	vte_terminal_set_scroll_on_keystroke(VTE_TERMINAL(widget), TRUE);
-	vte_terminal_set_scrollback_lines(VTE_TERMINAL(widget), lines);
-	vte_terminal_set_mouse_autohide(VTE_TERMINAL(widget), TRUE);
+	vte_terminal_set_audible_bell(terminal, audible);
+	vte_terminal_set_visible_bell(terminal, !audible);
+	vte_terminal_set_cursor_blinks(terminal, blink);
+	vte_terminal_set_scroll_background(terminal, scroll);
+	vte_terminal_set_scroll_on_output(terminal, FALSE);
+	vte_terminal_set_scroll_on_keystroke(terminal, TRUE);
+	vte_terminal_set_scrollback_lines(terminal, lines);
+	vte_terminal_set_mouse_autohide(terminal, TRUE);
 	if (background != NULL) {
-		vte_terminal_set_background_image_file(VTE_TERMINAL(widget),
+		vte_terminal_set_background_image_file(terminal,
 						       background);
 	}
 	if (transparent) {
-		vte_terminal_set_background_transparent(VTE_TERMINAL(widget),
+		vte_terminal_set_background_transparent(terminal,
 							TRUE);
 	}
-	vte_terminal_set_background_tint_color(VTE_TERMINAL(widget), &tint);
-	vte_terminal_set_colors(VTE_TERMINAL(widget), &fore, &back, NULL, 0);
+	vte_terminal_set_background_tint_color(terminal, &tint);
+	vte_terminal_set_colors(terminal, &fore, &back, NULL, 0);
+	vte_terminal_set_opacity(terminal, 0xdddd);
 	if (highlight_set) {
-		vte_terminal_set_color_highlight(VTE_TERMINAL(widget),
+		vte_terminal_set_color_highlight(terminal,
 						 &highlight);
 	}
 	if (cursor_set) {
-		vte_terminal_set_color_cursor(VTE_TERMINAL(widget), &cursor);
+		vte_terminal_set_color_cursor(terminal, &cursor);
 	}
-	if (terminal != NULL) {
-		vte_terminal_set_emulation(VTE_TERMINAL(widget), terminal);
+	if (termcap != NULL) {
+		vte_terminal_set_emulation(terminal, termcap);
 	}
 
 	/* Set the default font. */
-	if (font == NULL) {
-		font = "Monospace 12";
-	}
-	vte_terminal_set_font_from_string_full(VTE_TERMINAL(widget),
-					       font, antialias);
+	vte_terminal_set_font_from_string_full(terminal, font,
+					       antialias ? VTE_ANTI_ALIAS_USE_DEFAULT : VTE_ANTI_ALIAS_FORCE_DISABLE);
 
 	/* Match "abcdefg". */
-	vte_terminal_match_add(VTE_TERMINAL(widget), "abcdefg");
+	vte_terminal_match_add(terminal, "abcdefg");
 	if (dingus) {
-		i = vte_terminal_match_add(VTE_TERMINAL(widget), DINGUS1);
-		vte_terminal_match_set_cursor_type(VTE_TERMINAL(widget),
-						   i, GDK_GUMBY);
-		i = vte_terminal_match_add(VTE_TERMINAL(widget), DINGUS2);
-		vte_terminal_match_set_cursor_type(VTE_TERMINAL(widget),
-						   i, GDK_HAND1);
+		int id;
+		id = vte_terminal_match_add(terminal, DINGUS1);
+		vte_terminal_match_set_cursor_type(terminal,
+						   id, GDK_GUMBY);
+		id = vte_terminal_match_add(terminal, DINGUS2);
+		vte_terminal_match_set_cursor_type(terminal,
+						   id, GDK_HAND1);
 	}
 
 	if (console) {
@@ -708,20 +749,20 @@ main(int argc, char **argv)
 						       G_IO_IN,
 						       read_and_feed,
 						       widget);
-				g_signal_connect(G_OBJECT(widget),
+				g_signal_connect(widget,
 						 "eof",
 						 G_CALLBACK(disconnect_watch),
 						 GINT_TO_POINTER(watch));
-				g_signal_connect(G_OBJECT(widget),
+				g_signal_connect(widget,
 						 "child-exited",
 						 G_CALLBACK(disconnect_watch),
 						 GINT_TO_POINTER(watch));
-				g_signal_connect(G_OBJECT(widget),
+				g_signal_connect(widget,
 						 "realize",
 						 G_CALLBACK(take_xconsole_ownership),
 						 NULL);
 #ifdef VTE_DEBUG
-				vte_terminal_feed(VTE_TERMINAL(widget),
+				vte_terminal_feed(terminal,
 						  "Console log for ...\r\n",
 						  -1);
 #endif
@@ -740,25 +781,21 @@ main(int argc, char **argv)
 	if (!console) {
 		if (shell) {
 			/* Launch a shell. */
-	#ifdef VTE_DEBUG
-			if (_vte_debug_on(VTE_DEBUG_MISC)) {
-				vte_terminal_feed(VTE_TERMINAL(widget), message,
-						  strlen(message));
-			}
-	#endif
-			vte_terminal_fork_command(VTE_TERMINAL(widget),
+			_VTE_DEBUG_IF(VTE_DEBUG_MISC)
+				vte_terminal_feed(terminal, message, -1);
+			vte_terminal_fork_command(terminal,
 						  command, NULL, env_add,
 						  working_directory,
 						  TRUE, TRUE, TRUE);
 	#ifdef VTE_DEBUG
 			if (command == NULL) {
-				vte_terminal_feed_child(VTE_TERMINAL(widget),
+				vte_terminal_feed_child(terminal,
 							"pwd\n", -1);
 			}
 	#endif
 		} else {
 			long i;
-			i = vte_terminal_forkpty(VTE_TERMINAL(widget),
+			i = vte_terminal_forkpty(terminal,
 						 env_add, working_directory,
 						 TRUE, TRUE, TRUE);
 			switch (i) {
@@ -773,10 +810,10 @@ main(int argc, char **argv)
 					switch (i % 3) {
 					case 0:
 					case 1:
-						fprintf(stdout, "%ld\n", i);
+						g_print("%ld\n", i);
 						break;
 					case 2:
-						fprintf(stderr, "%ld\n", i);
+						g_printerr("%ld\n", i);
 						break;
 					}
 					sleep(1);
@@ -795,7 +832,16 @@ main(int argc, char **argv)
 	/* Go for it! */
 	add_weak_pointer(G_OBJECT(widget), &widget);
 	add_weak_pointer(G_OBJECT(window), &window);
+
+        gtk_widget_realize(widget);
+        if (geometry) {
+                if (!gtk_window_parse_geometry (GTK_WINDOW(window), geometry)) {
+                        g_warning (_("Could not parse the geometry spec passed to --geometry"));
+                }
+        }
+
 	gtk_widget_show_all(window);
+
 
 	gtk_main();
 

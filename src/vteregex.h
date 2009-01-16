@@ -19,7 +19,6 @@
 #ifndef vte_vteregex_h_included
 #define vte_vteregex_h_included
 
-#ident "$Id: vteregex.h 1133 2005-02-15 10:56:16Z kmaraas $"
 
 #include <glib.h>
 

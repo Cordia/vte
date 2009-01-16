@@ -286,6 +286,15 @@
   (return-type "none")
 )
 
+(define-method set_opacity
+  (of-object "VteTerminal")
+  (c-name "vte_terminal_set_opacity")
+  (return-type "none")
+  (parameters
+    '("guint16" "opacity")
+  )
+)
+
 (define-method set_background_image
   (of-object "VteTerminal")
   (c-name "vte_terminal_set_background_image")
@@ -493,6 +502,15 @@
 (define-method get_text
   (of-object "VteTerminal")
   (c-name "vte_terminal_get_text")
+  (return-type "char*")
+  (parameters
+    '("gboolean(*" "is_selected")
+  )
+)
+
+(define-method get_text_include_trailing_spaces
+  (of-object "VteTerminal")
+  (c-name "vte_terminal_get_text_include_trailing_spaces")
   (return-type "char*")
   (parameters
     '("gboolean(*" "is_selected")

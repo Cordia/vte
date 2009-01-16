@@ -1,12 +1,488 @@
-0.12.1
+0.16.14
+=======
+- Bugs fixed in this release:
+	Bug 536632 – vte build failure in ring.c:210: error: expected
+		expression before 'do'
+	Bug 535022 – ambiguous width in utf8 locale
+	Bug 534148 – Use g_listenv() instead of environ
+	Bug 516869 – vte displays nothing on GTK+/DirectFB
+		Original patch by Jérémy Bobbio.
+	Fix "GLib-CRITICAL **: g_io_add_watch_full: assertion
+	                       `channel != NULL' failed"
+
+0.16.13
+=======
+- Minor optimization.
+- Bugs fixed in this release:
+	Bug 517709 – VTE's pty.c makes 4096 getrlimit calls when it only needs
+	one
+	Bug 449131 – Wrong gettext domain
+
+0.16.12
+=======
+- More work around Gdk backends that don't issue GdkVisibilityNotify.
+- Bugs fixed in this release:
+	Bug 503164 – Drawing problems for VTE with gtk+-quartz
+	Bug 449131 – Wrong gettext domain
+
+0.16.11
+=======
+- Work around Gdk backends that don't issue GdkVisibilityNotify.
+- Try transliteration when pasting text into a non-UTF-8 locale.
+- Bugs fixed in this release:
+	Bug 503164 – Drawing problems for VTE with gtk+-quartz
+	Bug 319687 – Pasting of text containing characters not in the
+		terminal's encoding silently fails
+
+0.16.10
+=======
+- Smart tab character: you can now copy/paste tab characters printed by cat,
+  diff, and other line-oriented tools and get the tab character in the
+  clipboard, instead of multiple spaces.  The selection indicates that by
+  being all or none.
+- Misc bug fixes and optimizations.
+- Bugs fixed in this release:
+	* src/vtedraw.c (_vte_draw_init_user): Make VTE_BACKEND=list list
+	available backends to stderr.
+
+	Bug 497246 – Kill vte_iso2022_fragment_input
+	Bug 412435 – Invalid variable name in Makefile.am
+	Bug 416561 – Rendering issue in VtePango
+	Bug 416558 – Rendering errors in VteFT2
+	Bug 403217 – Outdated README
+	Bug 118967 – single line scrolling with "Ctrl+Shift+ArrowUp/ArrowDown"
+		Patch from Mauricio and Mariano Suárez-Alvarez
+	Bug 353610 – Don't convert tab characters upon copying
+	Bug 499892 – strikethrough line is too high
+	Bug 499891 – vte with opacity set, shows invisible chars
+	Bug 499896 – Alternate charset isn't an attribute, though we treat it
+		as one.
+	Bug 499893 – cell.attr.protect is unused
+	Bug 499287 – Fix doc coverage regression
+	Bug 142640 – FcConfigSubstitute in place of _vte_fc_defaults_from_gtk
+		to get antialias and hinting value
+	Bug 439384 – gnome-terminal on feisty crashes when giving wrong locale
+		environment
+	Bug 483642 – vte_terminal_feed crash when 8190 characters passed
+	Bug 480735 – Underlining whitespace not reliable
+		Original patch by Steven Skovran.
+
+0.16.9
+======
+- Slightly improved pango backend
+- Misc bug fixes.
+- Bugs fixed in this release:
+	Bug 469862 – Handling of wrapped links in gnome-terminal is broken
+	Bug 471901 – troubles with pad
+	Bug 153265 – Handle Sun Cut, Copy, Paste keys
+		Patch by Brian Cameron.
+	Bug 471484 – vteapp resize weirdness
+	Bug 434230 – Spaces are not underlined
+		Original patch by Santtu Lakkala.
+	Bug 450069 – vte crash on removing a terminal tab
+
+0.16.8
+======
+- Quick followup release with no code changes, to fix missing
+  documentation index in the tarball.
+
+0.16.7
+======
+- Misc bug fixes.
+- Bugs fixed in this release:
+	Bug 337252 – ALT + Arrow keys don't work in irssi through gnome-terminal
+		Patch by James Bowes
+	Bug 448259 – Mapping for Ctrl-_
+		Patch by Andrey Melnikov.
+	Bug 449809 – use python-config to get python includes
+		Patch by Sebastien Bacher.
+	Bug 450745 – VTE's response to CSI 2 1 t incorrectly formatted
+		Patch by Dale Sedivec.
+
+0.16.6
+======
+- Misc bug fixes.
+- Bugs fixed in this release:
+	Bug 445620 – Some characters shows different in different locales.
+		Patch from Zealot
+	Bug 372743 – vte_terminal_set_colors doesn't work as advertised
+
+0.16.5
+======
+- Fix issue with 'some strange "underline" line where cursor is
+  located and blinking'.
+
+0.16.4
+======
+- Misc bug fixes.
+- Bugs fixed in this release:
+	Bug 429278 – Cursor drawn strangely in joe
+	cf Bug 439247 – scrolling vim in full screen is painfully slow and takes up 100% of the cpu
+	Bug 440475 – Display glitch with transparent backgroud
+	Bug 375112 – ctrl-key combinations yielding just key
+		Original patch by <samo@altern.org> and refactored by Loïc Minier.
+	Bug 440377 – gnome-terminal cannot refresh terminal when accessibility enabled
+		Original patch by Li Yuan.
+	Bug 433776 – gnome-terminal crashes when open preedit area
+
+0.16.3
+======
+- Remove false warnings about missing glyphs in the Xft backend.
+- Rename --enable-debugging configure option to --enable-debug to
+  match other modules.
+- Fix some of refresh issue where terminals stopped updating after
+  changing workspaces.
+- Bugs fixed in this release:
+	Bug 429189 – Vte-WARNING's
+	Bug 415044 – Use --enable-debug rather than --enable-debugging
+	Bug 414716 – Refresh issue after changing workspaces
+
+0.16.2
+======
+- Consider ambiguous-width chars if VTE_CJK_WIDTH env var is set and we
+  are under a CJK locale.
+- Minor optimization
+- Bugs fixed in this release:
+	Bug 431799 – Regex highlighting is broken
+
+0.16.1
+======
+- Lots of bug fixes by Chris Wilson
+- New feature: mouse scroll-wheel now feeds three arrow-up/down keys to the
+  terminal if in the "alternate" mode.  The alternate mode is used by apps
+  like vim, less, emacs, screen, etc.  This makes the scroll-wheel usable
+  in a state that it was of no use before.
+- Bugs fixed in this release:
+	Bug 426870 – vte often passes NUL to functions requiring valid unichar
+	Bug 419644 – Links do not get highlighted anymore
+	Bug 404757 – URL matching doesn't work with PCRE
+	Bug 426541 – crash on IRM escape code
+	Bug 424184 – Make scroll wheel send Page Up/Down when it makes sense
+		Original patch by Shaun McCance and refined by Baris Cicek.
+	Bug 425767 – vte_terminal_set_color_highlight should test for
+		NULL before _vte_debug_print
+	Bug 422385 – vte appears at the top of the root window even when
+		packed at the bottom of it
+		Patch by Dodji Seketeli.
+	Bug 420935 – glyph can be cropped with not fitting in a cell
+	Bug 420067 – Does not handle expose events whilst processing
+		unseen incoming data
+	Bug 415381 – Improve performance of vte_terminal_insert_char()
+	Bug 418073 – Opacity ignored for vtexft
+	Bug 418910 – Asymmetric scrolling with mouse wheel
+	Bug 416634 – Rendering glitch as autowrapped chars are outside
+		invalidated bbox
+	Bug 416635 – Rendering glitch: double draw of line below exposed region
+	Bug 418588 – Invalid read when drawing preedit cursor
+	Bug 417652 – Scrolling bug exposed by nvi
+	Bug 417301 – Terminal widgets don't respond to DPI changes
+
+0.16.0
+======
+- Fix some minor bugs.  More regressions to be fixed later.
+- Bugs fixed in this release:
+	Bug 414716 – gnome-terminal-2.17.92: terminal window dies...
+	Bug 414586 – Terminal screen blinks when menu is opened for the first time
+	Bug 413068 – new line added to tab when opened
+
+0.15.6
+======
+- Fix various bugs introduced in last couple of releases.
+- Bugs fixed in this release:
+	Bug 410534 – Slow content scrolling, takes 100% of CPU.
+	Bug 413068 – new line added to tab when opened
+	Bug 413262 – Incorrectly coloured tabs
+	Bug 413102 – Incorrect highlighting in vim
+	Bug 413158 – Cursor trails
+	Bug 413078 – Crash during opening a new tab whilst scrolling
+	Bug 412717 – Crash when opening a new tab with window maximized
+
+0.15.5
+======
+This is a quick followup release to 0.15.4 to fix a crasher recently
+introduced.
+- Fix a newly-introduced crasher
+- Do not link to libpython in the python bindings
+- Bugs fixed in this release:
+	Bug 412562 – Crash in vte_terminal_match_hilite_update
+	Bug 410986 – Fails to build with -z defs
+
+0.15.4
+======
+This is yet another release including awesome work of Chris Wilson.
+Hopefully mostly bugs fixed with this release and not many introduced.
+- Bugs fixed in this release:
+	Bug 412361 – Yet another mouse selection regression...
+	Bug 411000 – Orca repeats old text in gnome-terminal
+	Bug 410534 – Slow content scrolling, takes 100% of CPU.
+	Bug 410463 – Poor interactive performance with multiple terminals
+	Bug 159078 – slow highlight
+	Bug 411276 – SVN trunk compilation error
+	Bug 410986 – Fails to build with -z defs
+		Patch by Loïc Minier.
+	Bug 410819 – slider not correctly positioned after calling less
+	Bug 410534 – Slow content scrolling, takes 100% of CPU.
+	Bug 410463 – Poor interactive performance with multiple terminals
+	RedHat Bug 113195: First line displayed incorrectly if prompt changes background color
+	RedHat Bug 123845: gnome-terminal not parsing cursor position escape sequence properly
+	Bug 409055 – Terminal stays blank
+	Bug 409241 – gnome-terminal crashed with SIGSEGV in vte_terminal_draw_graphic()
+	Bug 407945 – "GNOME" Terminal" regression after "vte" update when using "csh"
+	Bug 408536 – trouble compiling vte 0.15.3
+	Bug 408040 – vte automagic hyperlinks
+		Patch by Gilles Dartiguelongue.
+	Bug 407839 – Use of environ breaks build on Solaris
+		Original patch by Damien Carbery.
+	Bug 407358 – regression in mouse selection
+
+0.15.3
+======
+This is another release including awesome work of one Chris Wilson.  Lots of
+bugs with the previous release are fixed in this one and some new ones are
+introduced.  Doh!
+
+- Faster control sequence matching, using gperf-generated tables now
+- Faster regex matching
+- Improved expose handling
+- Improved control sequence matching
+- Various optimizations
+- Various cleanups
+- Bugs fixed in this release:
+	Bug 407091 – vte_terminal_fork_command() env argument changed semantic
+		in 0.15.2
+		Original patch by Michael Vogt.
+	Bug 323393 – Hyper-sensitive selection
+	Bug 406763 – Selecting double-wide characters
+	Bug 363597 – Scrollback in profile dialog doesn't work
+	Bug 345344 – Pattern matching is inefficient
+	Bug 324246 – Performance degredation with large numbers of highlighted
+		addresses/URLs
+	Bug 86119 – "select all" feature
+		Original patch by Simone Gotti.
+	Bug 342059 – ASCII escape sequences don't work as expected
+		Patch by Mariano Suárez-Alvarez.
+	Bug 404757 – URL matching doesn't work with PCRE
+	Bug 403028 – decset mode 12 = blinking cursor
+	cf Bug 342338 – suffers from memory fragmentation
+	Bug 106618 – CJK 'fixed width' font and 's p a c e d o u t' issue
+	cf Bug 83285 – Treacle-slow scrolling in gnome-terminal on
+		unaccelerated X server
+	Bug 322241 – Please switch to pkg-config to check for freetype
+	Bug 322240 – Usage of pkg-config privates header
+	cf Bug 403275 – crash in Terminal: I was typing reset on th...
+	Bug 403159 – XftDrawSetClipRectangles() silently fails on ppc->i386
+	Bug 382245 – __PyGtk_API multiply defined in python module
+	Bug 155687 – Scroll region \E[NN;MMr should set cursor to home
+	Bug 147784 – cursor unvisible under mouse highlight
+	Bug 368894 – crash in Terminal: I started gnome-terminal...
+	Bug 402329 – Rendering problem with underlines and cursor
+	Bug 336105 – gnome-terminal crashes when termcap not found
+	Bug 401215 – Multi-pass renderering
+	Bug 157267 – _vte_terminal_fudge_pango_colors() breaks Japanese input
+		style
+		Patch by ynakai@redhat.com.
+	Bug 400834 – Use a global display/process timeout
+	Bug 401082 – double-draw issue
+	Bug 318307 – Cursor colour changes to foreground when unfocused
+	Bug 317449 – The cursor disappears when clicking on windows above
+		gnome-terminal
+	Bug 400759 – update problem with vte trunk
+	Bug 400671 – crash in Terminal: detaching of tabs
+	Bug 399137 – UTF-8 problem in VteAccess
+	Bug 400493 – Mouse selection seriously broken
+	Bug 400438 – _vte_invalidate_all triggered on GDK_VISIBILITY_UNOBSCURED
+	cf Bug 400072 – Handling of ; in control sequences
+	cf Bug 399617 – Avoid memory allocations during an expose event.
+	Bug 147495 – screen flicker when opening new terminal windows
+	Bug 334755 – Incomplete information from vte_terminal_get_font
+	Bug 400184 – _vte_pty_open declaration mismatch - breaks on Solaris
+	Bug 335269 – Change the way vte handles PangoFontDescription behind
+		vte_terminal_set_font
+	Bug 123591 – vte_terminal_fork_command succeeds even when it does not
+
+0.15.2
+======
+This is a very exciting release.  Most of the changes are made by Chris Wilson
+who just got access to the vte repository.  On his first day he committed more
+than 20 large patches, cleaning various parts of the code base and optimizing
+too!  As a result of huge changes in this release, some regressions, specially
+on less common systems/architectures is expected.  Please file bugs.
+
+Highlights of improvements in this release:
+- Moving around in vim and mc is a lot faster now, thanks to much
+  smaller areas that will be redrawn with this release.
+- Mouse wheel is usable in mc now, since we don't generate release
+  events for scroll wheel events anymore.
+- Faster.  One of the internal timers was completely removed, and
+  lots of unnecessary work is not done anymore.  Particularly when
+  the widget is not visible.
+- Switched to using g_spawn_async to fork the child process, so we
+  can now enjoy the error checking implemented in that functions.
+  Failed forks now return an error message.
+- Accessibility improvements.
+- New environment variable VTE_BACKEND, to choose which rendering
+  backend to use.  The old VTE_USE_* env vars are deprecated and
+  not functional anymore.
+- Bugs fixed in this release:
+	Bug 399137 - continuation.
+	Bug 132316 – terminal widget's context menu posting isn't exposed as an AtkAction
+		     Original patch by <padraig.obriain@sun.com>
+	Bug 156161 – AccessibleText_getTextAtOffset returns wrong values in gnome-terminal
+		     Patch by <padraig.obriain@sun.com>
+	Bug 399137 – UTF-8 problem in VteAccess
+	Bug 123591 – vte_terminal_fork_command succeeds even when it does not
+	Bug 345514 – -no-undefined doesn't work with latest libtool
+	Bug 162003 – vte configure.in X checking can fail
+	           – though this may cause other regressions!
+	Bug 314669 – Please specialize AC_PATH_XTRA
+	Bug 389538 – crash in Terminal: nothing
+	Bug 161479 – Scroll wheel generates Release events
+	Bug 398602 – Build Failure
+	Bug 397724 – Orca incorrect echo's certain input in gnome-terminal
+		     when key echo is set to off (on Ubuntu Feisty).
+	Bug 398244 – Gnome-terminal opens a huge sized window
+	Bug 398243 – Crash
+	Bug 398116 – lags behind when widget not visible
+	Bug 398083 – background not painted correctly when starting up
+	Bug 397414 - port vteapp to GOption
+	Bug 395373 - Allow the user to specify backend priorities.
+	Bug 346554 – Fancy prompt triggers update problem
+	Bug 397439 – Performance enhancement patch series
+	Bug 161342 – Vte slow with mc and vim
+	Bug 387171 – vte fails to install on FreeBSD due to missing header
+		     Patch from Roy Marples
+	Bug 396831 – Unable to compile without X
+		     Patch from Chris Wilson
+	Bug 394890 – Segfault when running vte or gnome-terminal
+
+0.15.1
+	Bug 354061 – Excessive use of strlen by _vte_termcap_create
+		     Patch from Ryan Lortie
+	Bug 387475 – Gtk-Warning spew in gnome-terminal
+		     Patch from Ryan Lortie
+	Bug 387482 – Variable modified in signal handler should be volatile
+		     Patch from Bastien Nocera
+	Red Hat Bug 218626: "last -ad" print junk in last column
+
+0.15.0
+	Bug 356552 – cursor timeout runs all the time [Ryan Lortie]
+	Bug 307396 – Mouse scroll mode not controllable [Mariano Suárez-Alvarez]
+	Bug 356602 – const cast warning fixes for libvte [Ryan]
+	Bug 150858 – In gnome-terminal, the deleted character reported as "space" [Rich Burridge]
+	Bug 337252 – ALT + Arrow keys don't work in irssi through gnome-terminal [Mariano]
+
+0.14.1
+	Bug 358344 – autoscroll only works one way in fullscreen [PATCH]
+	             Patch by Egmont Koblinger
+	Bug 353756 – font setting cleanup
+	Bug 356616 – libvte broken with new autotools
+	Bug 354024 – Suppress multiple warnings for missing control sequence
+	             handlers
+	             Patch from Chris Wilson
+	Bug 354620 – vte-0.14.0: undefined C code
+	             Patch from Ales Nosek
+	Define G_LOG_DOMAIN=Vte.
+
+0.14.0
+	Minor doc syntax update.
+	Fix bug causing empty lines to not being copied.
+
+0.13.7
+	Bug 350236 – Cannot copy text; invalid character sequence errors
+	Bug 352439 – URL highlighting seriously broken
+	Bug 351494 – Gnome-terminal doesn't kills bash on tab close
+	             Patch from Aivars Kalvans
+	Bug 352365 – font caching problem for not-found glyphs
+
+0.13.6
+	Bug 351696 – crash on Terminal, check ->window before setting
+	             icon/window title
+	Bug 350623 – Accessible text getTextAtOffset is broken
+	             Patch from Willie Walker
+
+0.13.5
+	Bug 158200 – terminal backspace behavior not set to UTF-8 mode
+	             Based on patch from Egmont Koblinger
+	Bug 348814 – crash on Terminal
+	             Patch from Aivars Kalvans
+
+0.13.4
+	Fix selection that I broke in last release.
+	Bug 336947 – [patch] Redundant vte_terminal_set_font_full() calls
+	             Patch from Aivars Kalvans
+	Bug 134800 – gnome-termnal hung up when input by ATOK
+	             Patch from Yukihiro Nakai  <nakai@gnome.gr.jp>
+	Bug 339983 – gnome-pty-helper should log username
+	             Patch from Brian Cameron
+
+0.13.3
+	Bug 121904 – copy-paste of empty line
+	Bug 25290 – Small UI tweak to select-by-word (only select only letter
+	            at a time for non-word characters)
+	Bug 339986 – Patch to select localized strings exactly
+		     Patch from Takao Fujiwara
+	Bug 311855 – Race in vte leads to blocking of input.
+		     Patch from Kalle Raiskila
+	Bug 342396 – Ctrl-space sends " ", not NUL.
+	Bug 345377 – real transparency
+		     Patch from Kristian Høgsberg <krh redhat.com>
+	Bug 345514 – -no-undefined doesn't work with latest libtool
+	Bug 141985 – vte does not respond to 'CSI 2 1 t' or 'CSI 2 0 t' with
+		     the correct window/icon title
+		     Patch from Mariano Suárez-Alvarez
+
+0.13.2
+	Bug 344666 – Problems with *_CFLAGS and *_LDFLAGS in makefiles
+	             Patch from Stepan Kasal <kasal@ucw.cz>.
+	Bug 339529 – gnome-terminal (vte) crashes when detatched window is
+	             closed
+	Bug 342549 – uninitialized var (coverity)
+	             Patch from Paolo Borelli.
+	Bug 342082 – vte_invalidate_region() may check whether terminal is
+	             realiazed or not
+	             Patch from Kouhei Sutou.
+	Bug 340363 – vte Cygwin build fixes
+	             Patch from Cygwin Ports maintainer
+	Bug 341793 – vte.h doesn't need to include X11/Xlib.h
+	             Patch from Kouhei Sutou
+	Require intltool 0.35.0 to have translations in the dist tarballs.
+	Fix typo which may have been causing things like crashes.
+
+0.13.1
+	Use intltool 0.34.90 to make sure tarball includes po files.
+	Bug 339980 – nativeecho needs glib in LDADD to build on Solaris
+	             Patch from Brian Cameron.
+	Bug 331803 – style needs to be attached/detached to the window on
+	             realize/unrealize
+	             Patch from Benjamin Berg  <benjamin@sipsolutions.net>.
+	Pass -no-undefined linker flag.
+
+0.13.0
+	Removed obsolete #ifde GTK_CHECK_VERSION(2,2,0) checks.
+	Bug 339448 – selection doesn't respect hard newlines
+	Bug 148720 – Word selection erroneously captures text from next line
+	Bug 126376 – Uncoinditional definition of _XOPEN_SOURCE breaks build
+	             on NetBSD
+	Bug 97719 – Selection: double/triple click doesn't cross line boundaries
+	Bug 160782 – Vte isn't multi-screen safe
+	Bug 330441 – Remove libzvt support
 	Bug 328850 – Crash when pasting selection
 	Bug 160134 – mouse events occurring past column 95 are not passed
 	             through to terminal application
 		     New public function vte_terminal_feed_child_binary
 	Bug 135230 – Feature request to attach VTE to existing pty
 	             New public function vte_terminal_set_pty
+	Bug 337442 – [patch] Reduce .plt section
+	             We use a regexp to limit exported symbols now.
+	Bug 142247 – use of uninitialized value
+	Bug 149633 – gnome-terminal messes up boxdrawing chars aligment
 	Bug 144456 – UK pound currency symbol rendered incorrectly
+	Bug 307403 – xticker doublefree
+	Bug 337877 – Patch to use po/LINGUAS
 	Bug 337552 – Insufficient version requirement for gtk+
+	Bug 168251 – add support for 256 colors terminals
+	Bug 120276 – Wishlist: Support Rectangular Selection
+	Bug 336117 – [patch] Use g_slice API
 	Bug 336128 – vim scrolling issues - emulation errors
 	Bug 334385 – Use intltool
 	Bug 104841 – scrolling doesn't work inside "screen" windows
@@ -179,3 +655,8 @@
 0.3: Initial accessibility peer implementation.
 
 prehistory
+
+Local Variables:
+coding: utf-8
+End:
+vim: encoding=utf-8:

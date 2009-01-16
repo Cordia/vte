@@ -21,7 +21,6 @@
 #ifndef vte_ring_h_included
 #define vte_ring_h_included
 
-#ident "$Id: ring.h 555 2003-01-14 06:33:14Z nalin $"
 
 #include <glib.h>
 
@@ -31,28 +30,39 @@ typedef struct _VteRing VteRing;
 typedef void (*VteRingFreeFunc)(gpointer freeing, gpointer data);
 
 struct _VteRing {
+	glong delta, length, max;
+	glong cached_item;
+	gpointer cached_data;
+	gpointer *array;
+
 	VteRingFreeFunc free;
 	gpointer user_data;
-	gpointer *array;
-	glong delta, length, max;
 };
 
 #define _vte_ring_contains(__ring, __position) \
-	((__position >= (__ring)->delta) && \
-	 (__position < (__ring)->delta + (__ring)->length))
+	(((__position) >= (__ring)->delta) && \
+	 ((__position) < (__ring)->delta + (__ring)->length))
 #define _vte_ring_delta(__ring) ((__ring)->delta)
 #define _vte_ring_length(__ring) ((__ring)->length)
 #define _vte_ring_next(__ring) ((__ring)->delta + (__ring)->length)
 #define _vte_ring_max(__ring) ((__ring)->max)
+#define _vte_ring_is_cached(__ring, __v) ((__ring)->cached_item == (__v))
+#define _vte_ring_get_cached_data(__ring) ((__ring)->cached_data)
+#define _vte_ring_set_cache(__ring, __v, __data) ((__ring)->cached_item = (__v), (__ring)->cached_data = (__data))
+#ifdef VTE_DEBUG
 #define _vte_ring_at(__ring, __position) \
-	((__ring)->array[__position % (__ring)->max] ? \
-	 (__ring)->array[__position % (__ring)->max] : \
-	 (g_error("NULL at %ld(->%ld) delta %ld, length %ld, max %ld next %ld" \
+	((__ring)->array[(__position) % (__ring)->max] ? \
+	 (__ring)->array[(__position) % (__ring)->max] : \
+	 (g_critical("NULL at %ld(->%ld) delta %ld, length %ld, max %ld next %ld" \
 		  " at %d\n", \
-		  __position, __position % (__ring)->max, \
+		  (__position), (__position) % (__ring)->max, \
 		  (__ring)->delta, (__ring)->length, (__ring)->max, \
 		  (__ring)->delta + (__ring)->length, \
 		  __LINE__), (gpointer) NULL))
+#else
+#define _vte_ring_at(__ring, __position) \
+	((__ring)->array[(__position) % (__ring)->max])
+#endif
 #define _vte_ring_index(__ring, __cast, __position) \
 	(__cast) _vte_ring_at(__ring, __position)
 
@@ -61,10 +71,10 @@ VteRing *_vte_ring_new(glong max_elements,
 		      gpointer data);
 VteRing *_vte_ring_new_with_delta(glong max_elements, glong delta,
 				  VteRingFreeFunc free, gpointer data);
-void _vte_ring_insert(VteRing *ring, glong position, gpointer data);
-void _vte_ring_insert_preserve(VteRing *ring, glong position, gpointer data);
-void _vte_ring_remove(VteRing *ring, glong position, gboolean free_element);
-void _vte_ring_append(VteRing *ring, gpointer data);
+gpointer _vte_ring_insert(VteRing *ring, glong position, gpointer data);
+gpointer _vte_ring_insert_preserve(VteRing *ring, glong position, gpointer data);
+gpointer _vte_ring_remove(VteRing *ring, glong position, gboolean free_element);
+gpointer _vte_ring_append(VteRing *ring, gpointer data);
 void _vte_ring_free(VteRing *ring, gboolean free_elements);
 
 G_END_DECLS

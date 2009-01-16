@@ -16,9 +16,11 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: trie.c 1217 2006-01-30 12:23:49Z gpastore $"
 #include "../config.h"
 #include <sys/types.h>
+#ifdef HAVE_SYS_SYSLIMITS_H
+#include <sys/syslimits.h>
+#endif
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -39,12 +41,7 @@
 typedef gunichar wint_t;
 #endif
 
-#ifdef ENABLE_NLS
-#include <libintl.h>
-#define _(String) dgettext(PACKAGE, String)
-#else
-#define _(String) String
-#endif
+#include <glib/gi18n-lib.h>
 
 #ifndef TRIE_MAYBE_STATIC
 #define TRIE_MAYBE_STATIC
@@ -72,8 +69,8 @@ struct char_class {
 					   counted together. */
 	gunichar *code;			/* A magic string that indicates this
 					   class should be found here. */
-	size_t code_length;
-	size_t ccount;			/* The maximum number of characters
+	gsize code_length;
+	gsize ccount;			/* The maximum number of characters
 					   after the format specifier to
 					   consume. */
 	gboolean (*check)(const gunichar c, struct char_class_data *data);
@@ -82,7 +79,7 @@ struct char_class {
 	void (*setup)(const gunichar *s, struct char_class_data *data, int inc);
 					/* Setup the data struct for use in the
 					 * above check function. */
-	gboolean (*extract)(const gunichar *s, size_t length,
+	gboolean (*extract)(const gunichar *s, gsize length,
 			    struct char_class_data *data,
 			    GValueArray *array);
 					/* Extract a parameter. */
@@ -90,11 +87,12 @@ struct char_class {
 
 /* A trie to hold control sequences. */
 struct _vte_trie {
+	struct _vte_matcher_impl impl;
 	const char *result;		/* If this is a terminal node, then this
 					   field contains its "value". */
 	GQuark quark;			/* The quark for the value of the
 					   result. */
-	size_t trie_path_count;		/* Number of children of this node. */
+	gsize trie_path_count;		/* Number of children of this node. */
 	struct trie_path {
 		struct char_class *cclass;
 		struct char_class_data data;
@@ -124,7 +122,7 @@ char_class_percent_setup(const gunichar *s, struct char_class_data *data,
 	return;
 }
 static gboolean
-char_class_none_extract(const gunichar *s, size_t length,
+char_class_none_extract(const gunichar *s, gsize length,
 			struct char_class_data *data, GValueArray *array)
 {
 	return FALSE;
@@ -156,11 +154,11 @@ char_class_digit_setup(const gunichar *s, struct char_class_data *data, int inc)
 	return;
 }
 static gboolean
-char_class_digit_extract(const gunichar *s, size_t length,
+char_class_digit_extract(const gunichar *s, gsize length,
 			 struct char_class_data *data, GValueArray *array)
 {
 	long ret = 0;
-	size_t i;
+	gsize i;
 	GValue value;
 	for (i = 0; i < length; i++) {
 		ret *= 10;
@@ -202,11 +200,11 @@ char_class_multi_setup(const gunichar *s, struct char_class_data *data, int inc)
 	return;
 }
 static gboolean
-char_class_multi_extract(const gunichar *s, size_t length,
+char_class_multi_extract(const gunichar *s, gsize length,
 			 struct char_class_data *data, GValueArray *array)
 {
 	long ret = 0;
-	size_t i;
+	gsize i;
 	GValue value;
 	memset(&value, 0, sizeof(value));
 	g_value_init(&value, G_TYPE_LONG);
@@ -238,7 +236,7 @@ char_class_any_setup(const gunichar *s, struct char_class_data *data, int inc)
 	return;
 }
 static gboolean
-char_class_any_extract(const gunichar *s, size_t length,
+char_class_any_extract(const gunichar *s, gsize length,
 		       struct char_class_data *data, GValueArray *array)
 {
 	long ret = 0;
@@ -263,10 +261,10 @@ char_class_string_setup(const gunichar *s, struct char_class_data *data, int inc
 	data->c = s[0];
 	return;
 }
-static size_t
-unichar_snlen(const gunichar *s, size_t length)
+static gsize
+unichar_snlen(const gunichar *s, gsize length)
 {
-	size_t i;
+	gsize i;
 	for (i = 0; i < length; i++) {
 		if (s[i] == '\0') {
 			return i;
@@ -286,9 +284,9 @@ unichar_sncpy(gunichar *d, const gunichar *s, gsize length)
 	}
 }
 static int
-unichar_sncmp(const gunichar *a, const gunichar *b, size_t length)
+unichar_sncmp(const gunichar *a, const gunichar *b, gsize length)
 {
-	int i;
+	gsize i;
 	for (i = 0; i < length; i++) {
 		if (a[i] != b[i]) {
 			return a[i] - b[i];
@@ -300,12 +298,12 @@ unichar_sncmp(const gunichar *a, const gunichar *b, size_t length)
 	return 0;
 }
 static gboolean
-char_class_string_extract(const gunichar *s, size_t length,
+char_class_string_extract(const gunichar *s, gsize length,
 			  struct char_class_data *data, GValueArray *array)
 {
 	gunichar *ret = NULL;
-	size_t len;
-	int i;
+	gsize len;
+	gsize i;
 	GValue value;
 
 	len = unichar_snlen(s, length);
@@ -314,11 +312,8 @@ char_class_string_extract(const gunichar *s, size_t length,
 	for (i = 0; i < len; i++) {
 		ret[i] &= ~(VTE_ISO2022_ENCODED_WIDTH_MASK);
 	}
-#ifdef VTE_DEBUG
-	if (_vte_debug_on(VTE_DEBUG_PARSE)) {
-		fprintf(stderr, "Extracting string `%ls'.\n", (wchar_t*) ret);
-	}
-#endif
+	_vte_debug_print(VTE_DEBUG_PARSE,
+			"Extracting string `%ls'.\n", (wchar_t*) ret);
 	memset(&value, 0, sizeof(value));
 
 	g_value_init(&value, G_TYPE_POINTER);
@@ -372,7 +367,10 @@ static struct char_class char_classes[] = {
 TRIE_MAYBE_STATIC struct _vte_trie *
 _vte_trie_new(void)
 {
-	return g_malloc0(sizeof(struct _vte_trie));
+	struct _vte_trie *ret;
+	ret = g_slice_new0(struct _vte_trie);
+	ret->impl.klass = &_vte_matcher_trie;
+	return ret;
 }
 
 TRIE_MAYBE_STATIC void
@@ -385,20 +383,20 @@ _vte_trie_free(struct _vte_trie *trie)
 	if (trie->trie_path_count > 0) {
 		g_free(trie->trie_paths);
 	}
-	g_free(trie);
+	g_slice_free(struct _vte_trie, trie);
 }
 
 /* Add the given pattern, with its own result string, to the trie, with the
  * given initial increment value. */
 static void
-_vte_trie_addx(struct _vte_trie *trie, gunichar *pattern, size_t length,
+_vte_trie_addx(struct _vte_trie *trie, gunichar *pattern, gsize length,
 	       const char *result, GQuark quark, int inc)
 {
-	unsigned long i;
+	gsize i;
 	struct char_class *cclass = NULL;
 	struct char_class_data data;
 	gunichar *code;
-	size_t len = 0, ccount = 0;
+	gsize len = 0, ccount = 0;
 	gunichar inc_wstring[] = {'%', 'i', '\0'};
 
 	/* The trivial case -- we'll just set the result at this node. */
@@ -407,12 +405,9 @@ _vte_trie_addx(struct _vte_trie *trie, gunichar *pattern, size_t length,
 			trie->quark = g_quark_from_string(result);
 			trie->result = g_quark_to_string(trie->quark);
 		} else {
-#ifdef VTE_DEBUG
-			if (_vte_debug_on(VTE_DEBUG_PARSE)) {
+			_VTE_DEBUG_IF(VTE_DEBUG_PARSE)
 				g_warning(_("Duplicate (%s/%s)!"),
 					  result, trie->result);
-			}
-#endif
 		}
 		return;
 	}
@@ -428,7 +423,7 @@ _vte_trie_addx(struct _vte_trie *trie, gunichar *pattern, size_t length,
 
 	/* Now check for examples of character class specifiers, and use that
 	 * to put this part of the pattern in a character class. */
-	for (i = G_N_ELEMENTS(char_classes) - 1; i >= 0; i--) {
+	for (i = G_N_ELEMENTS(char_classes); i--; ) {
 		len = char_classes[i].code_length;
 		code = char_classes[i].code;
 		ccount = char_classes[i].ccount;
@@ -437,7 +432,6 @@ _vte_trie_addx(struct _vte_trie *trie, gunichar *pattern, size_t length,
 			break;
 		}
 	}
-	g_assert(i >= 0);
 
 	/* Initialize the data item using the data we have here. */
 	memset(&data, 0, sizeof(data));
@@ -483,12 +477,13 @@ _vte_trie_addx(struct _vte_trie *trie, gunichar *pattern, size_t length,
 
 /* Add the given pattern, with its own result string, to the trie. */
 TRIE_MAYBE_STATIC void
-_vte_trie_add(struct _vte_trie *trie, const char *pattern, size_t length,
+_vte_trie_add(struct _vte_trie *trie, const char *pattern, gsize length,
 	      const char *result, GQuark quark)
 {
-	char *wpattern, *wpattern_end, *tpattern;
+	const guchar *tpattern;
+	guchar *wpattern, *wpattern_end;
 	VteConv conv;
-	size_t wlength;
+	gsize wlength;
 
 	g_return_if_fail(trie != NULL);
 	g_return_if_fail(pattern != NULL);
@@ -502,9 +497,9 @@ _vte_trie_add(struct _vte_trie *trie, const char *pattern, size_t length,
 	wpattern = wpattern_end = g_malloc0(wlength + 1);
 
 	conv = _vte_conv_open(VTE_CONV_GUNICHAR_TYPE, "UTF-8");
-	g_assert(conv != ((VteConv) -1));
+	g_assert(conv != VTE_INVALID_CONV);
 
-	tpattern = (char*)pattern;
+	tpattern = (const guchar *)pattern;
 	_vte_conv(conv, &tpattern, &length, &wpattern_end, &wlength);
 	if (length == 0) {
 		wlength = (wpattern_end - wpattern) / sizeof(gunichar);
@@ -517,10 +512,10 @@ _vte_trie_add(struct _vte_trie *trie, const char *pattern, size_t length,
 }
 
 /* Check if the given pattern matches part of the given trie, returning an
- * empty string on a partial initial match, a NULL if there's no match in the
+ * empty string on a partial initial match, a %NULL if there's no match in the
  * works, and the result string if we have an exact match. */
 static const char *
-_vte_trie_matchx(struct _vte_trie *trie, const gunichar *pattern, size_t length,
+_vte_trie_matchx(struct _vte_trie *trie, const gunichar *pattern, gsize length,
 		 gboolean greedy,
 		 const char **res, const gunichar **consumed,
 		 GQuark *quark, GValueArray *array)
@@ -632,13 +627,15 @@ _vte_trie_matchx(struct _vte_trie *trie, const gunichar *pattern, size_t length,
 				if (better) {
 					best = tmp;
 					if (bestarray != NULL) {
-						_vte_matcher_free_params_array(bestarray);
+						_vte_matcher_free_params_array(
+								NULL, bestarray);
 					}
 					bestarray = tmparray;
 					bestquark = tmpquark;
 					bestconsumed = *consumed;
 				} else {
-					_vte_matcher_free_params_array(tmparray);
+					_vte_matcher_free_params_array(
+							NULL, tmparray);
 					tmparray = NULL;
 				}
 			}
@@ -650,12 +647,12 @@ _vte_trie_matchx(struct _vte_trie *trie, const gunichar *pattern, size_t length,
 		for (i = 0; i < bestarray->n_values; i++) {
 			GValue *value = g_value_array_get_nth(bestarray, i);
 			g_value_array_append(array, value);
-			
+
 			if (G_VALUE_HOLDS_POINTER(value)) {
 				g_value_set_pointer(value, NULL);
 			}
 		}
-		_vte_matcher_free_params_array(bestarray);
+		_vte_matcher_free_params_array(NULL, bestarray);
 	}
 #if 0
 	printf("`%s' ", best);
@@ -668,10 +665,10 @@ _vte_trie_matchx(struct _vte_trie *trie, const gunichar *pattern, size_t length,
 }
 
 /* Check if the given pattern matches part of the given trie, returning an
- * empty string on a partial initial match, a NULL if there's no match in the
+ * empty string on a partial initial match, a %NULL if there's no match in the
  * works, and the result string if we have an exact match. */
 TRIE_MAYBE_STATIC const char *
-_vte_trie_match(struct _vte_trie *trie, const gunichar *pattern, size_t length,
+_vte_trie_match(struct _vte_trie *trie, const gunichar *pattern, gsize length,
 		const char **res, const gunichar **consumed,
 		GQuark *quark, GValueArray **array)
 {
@@ -680,11 +677,14 @@ _vte_trie_match(struct _vte_trie *trie, const gunichar *pattern, size_t length,
 	GValueArray *valuearray;
 	GValue *value;
 	const gunichar *dummyconsumed;
-	gpointer ptr;
 	gboolean greedy = FALSE;
-	int i;
+	guint i;
 
-	valuearray = g_value_array_new(0);
+	if (array != NULL && *array != NULL) {
+		valuearray = *array;
+	} else {
+		valuearray = g_value_array_new(0);
+	}
 	if (quark == NULL) {
 		quark = &tmpquark;
 	}
@@ -703,23 +703,17 @@ _vte_trie_match(struct _vte_trie *trie, const gunichar *pattern, size_t length,
 			for (i = 0; i < valuearray->n_values; i++) {
 				value = g_value_array_get_nth(valuearray, i);
 				if (G_VALUE_HOLDS_POINTER(value)) {
-					ptr = g_value_get_pointer(value);
-					if (ptr != NULL) {
-						g_free(ptr);
-					}
+					g_free(g_value_get_pointer(value));
 					g_value_set_pointer(value, NULL);
 				}
 			}
-			_vte_matcher_free_params_array(valuearray);
-		}
-		if (array != NULL) {
-			*array = NULL;
+			if (array == NULL || valuearray != *array) {
+				_vte_matcher_free_params_array(NULL, valuearray);
+			}
 		}
 	} else {
-		if (array != NULL) {
-			*array = valuearray;
-		} else {
-			_vte_matcher_free_params_array(valuearray);
+		if (array == NULL) {
+			_vte_matcher_free_params_array(NULL, valuearray);
 		}
 	}
 
@@ -729,7 +723,7 @@ _vte_trie_match(struct _vte_trie *trie, const gunichar *pattern, size_t length,
 /* Print the next layer of the trie, indented by length spaces. */
 static void
 _vte_trie_printx(struct _vte_trie *trie, const char *previous,
-		 size_t *nodecount)
+		 gsize *nodecount)
 {
 	unsigned int i;
 	char buf[LINE_MAX];
@@ -807,7 +801,7 @@ _vte_trie_printx(struct _vte_trie *trie, const char *previous,
 TRIE_MAYBE_STATIC void
 _vte_trie_print(struct _vte_trie *trie)
 {
-	size_t nodecount = 0;
+	gsize nodecount = 0;
 	_vte_trie_printx(trie, "", &nodecount);
 	printf("Trie has %ld nodes.\n", (long) nodecount);
 }
@@ -841,13 +835,13 @@ dump_array(GValueArray *array)
 }
 
 static void
-convert_mbstowcs(const char *i, size_t ilen,
-		 gunichar *o, size_t *olen, size_t max_olen)
+convert_mbstowcs(const char *i, gsize ilen,
+		 gunichar *o, gsize *olen, gsize max_olen)
 {
 	VteConv conv;
-	size_t outlen;
+	gsize outlen;
 	conv = _vte_conv_open(VTE_CONV_GUNICHAR_TYPE, "UTF-8");
-	g_assert(conv != ((VteConv) -1));
+	g_assert(conv != VTE_INVALID_CONV);
 
 	memset(o, 0, max_olen);
 	outlen = max_olen;
@@ -865,7 +859,7 @@ main(int argc, char **argv)
 	GQuark quark;
 	gunichar buf[LINE_MAX];
 	const gunichar *consumed;
-	size_t buflen;
+	gsize buflen;
 
 	_vte_debug_parse_string(getenv("VTE_DEBUG_FLAGS"));
 
@@ -905,10 +899,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abc",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -917,10 +911,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abcdef",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -929,10 +923,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abcde",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -941,10 +935,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abcdeg",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -953,10 +947,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abc%deg",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -965,10 +959,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abc10eg",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -977,10 +971,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abc%eg",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -989,10 +983,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abc%10eg",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -1001,10 +995,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "abcBeg",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -1013,10 +1007,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>[25;26H",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -1025,10 +1019,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>[25;2",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 	}
 
 	quark = 0;
@@ -1036,10 +1030,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>[25L",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 	}
 
 	quark = 0;
@@ -1047,10 +1041,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>[25L<esc>[24L",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 	}
 
 	quark = 0;
@@ -1058,10 +1052,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>[25;26L",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 	}
 
 	quark = 0;
@@ -1069,10 +1063,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>]2;WoofWoofh",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -1082,10 +1076,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>]2;WoofWoofh<esc>]2;WoofWoofh",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -1094,10 +1088,10 @@ main(int argc, char **argv)
 	printf("`%s' = `%s'\n", "<esc>]2;WoofWoofhfoo",
 	       _vte_trie_match(trie, buf, buflen,
 			       NULL, &consumed, &quark, &array));
-	printf("=> `%s' (%d)\n", g_quark_to_string(quark), consumed - buf);
+	printf("=> `%s' (%d)\n", g_quark_to_string(quark), (int)(consumed - buf));
 	if (array != NULL) {
 		dump_array(array);
-		_vte_matcher_free_params_array(array);
+		_vte_matcher_free_params_array(NULL, array);
 		array = NULL;
 	}
 
@@ -1106,3 +1100,11 @@ main(int argc, char **argv)
 	return 0;
 }
 #endif
+
+const struct _vte_matcher_class _vte_matcher_trie = {
+	(_vte_matcher_create_func)_vte_trie_new,
+	(_vte_matcher_add_func)_vte_trie_add,
+	(_vte_matcher_print_func)_vte_trie_print,
+	(_vte_matcher_match_func)_vte_trie_match,
+	(_vte_matcher_destroy_func)_vte_trie_free
+};

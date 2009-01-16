@@ -21,13 +21,12 @@
 
 /* The interfaces in this file are subject to change at any time. */
 
-#ident "$Id: vteft2.h 856 2003-05-05 23:27:13Z nalin $"
 
 #include "vtedraw.h"
 
 G_BEGIN_DECLS
 
-extern struct _vte_draw_impl _vte_draw_ft2;
+extern const struct _vte_draw_impl _vte_draw_ft2;
 
 G_END_DECLS
 

@@ -19,15 +19,11 @@
 #ifndef vte_vte_h_included
 #define vte_vte_h_included
 
-#ident "$Id: vte.h 1320 2006-05-26 22:58:11Z  $"
-
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <X11/Xlib.h>
 #include <glib.h>
-#include <pango/pango.h>
 #include <gtk/gtk.h>
+#include <pango/pango.h>
+
+#include <sys/types.h> /* for pid_t */
 
 G_BEGIN_DECLS
 
@@ -95,14 +91,14 @@ struct _VteTerminalClass {
 	void (*text_inserted)(VteTerminal* terminal);
 	void (*text_deleted)(VteTerminal* terminal);
 	void (*text_scrolled)(VteTerminal* terminal, gint delta);
+	void (*copy_clipboard)(VteTerminal* terminal);
+	void (*paste_clipboard)(VteTerminal* terminal);
 
 	/* Padding for future expansion. */
 	void (*vte_reserved1)(void);
 	void (*vte_reserved2)(void);
 	void (*vte_reserved3)(void);
 	void (*vte_reserved4)(void);
-	void (*vte_reserved5)(void);
-	void (*vte_reserved6)(void);
 
 	/*< private > */
 	/* Signals we might emit. */
@@ -165,7 +161,7 @@ typedef enum {
 struct _VteCharAttributes {
 	long row, column;
 	GdkColor fore, back;
-	gboolean underline:1, strikethrough:1;
+	guint underline:1, strikethrough:1;
 };
 typedef struct _VteCharAttributes VteCharAttributes;
 
@@ -173,7 +169,7 @@ typedef struct _VteCharAttributes VteCharAttributes;
 struct vte_char_attributes {
 	long row, column;
 	GdkColor fore, back;
-	gboolean underline:1, strikethrough:1;
+	guint underline:1, strikethrough:1;
 };
 
 /* The widget's type. */
@@ -230,11 +226,15 @@ void vte_terminal_paste_clipboard(VteTerminal *terminal);
 void vte_terminal_copy_primary(VteTerminal *terminal);
 void vte_terminal_paste_primary(VteTerminal *terminal);
 
+/* simple manipulation of selection */
+void vte_terminal_select_all(VteTerminal *terminal);
+void vte_terminal_select_none(VteTerminal *terminal);
+
 /* Set the terminal's size. */
 void vte_terminal_set_size(VteTerminal *terminal,
 			   glong columns, glong rows);
 
-/* Set various one-off settings. */
+/* Set various on-off settings. */
 void vte_terminal_set_audible_bell(VteTerminal *terminal, gboolean is_audible);
 gboolean vte_terminal_get_audible_bell(VteTerminal *terminal);
 void vte_terminal_set_visible_bell(VteTerminal *terminal, gboolean is_visible);
@@ -274,6 +274,7 @@ void vte_terminal_set_background_saturation(VteTerminal *terminal,
 					    double saturation);
 void vte_terminal_set_background_transparent(VteTerminal *terminal,
 					     gboolean transparent);
+void vte_terminal_set_opacity(VteTerminal *terminal, guint16 opacity);
 
 /* Set whether or not the cursor blinks. */
 void vte_terminal_set_cursor_blinks(VteTerminal *terminal, gboolean blink);
@@ -354,7 +355,6 @@ char *vte_terminal_get_text_range(VteTerminal *terminal,
 				  GArray *attributes);
 void vte_terminal_get_cursor_position(VteTerminal *terminal,
 				      glong *column, glong *row);
-
 /* Display string matching:  clear all matching expressions. */
 void vte_terminal_match_clear_all(VteTerminal *terminal);
 

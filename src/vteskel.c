@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vteskel.c 1076 2004-04-20 05:16:56Z nalin $"
 
 #include "../config.h"
 
@@ -31,32 +30,20 @@
 struct _vte_skel_data
 {
 	GdkColor color;
-	GdkPixmap *pixmap;
-	gint pixmapw, pixmaph;
+	guint16 opacity;
 	gint scrollx, scrolly;
 };
 
 static gboolean
 _vte_skel_check(struct _vte_draw *draw, GtkWidget *widget)
 {
-	/* Implement me first. */
-	return FALSE;
+	return TRUE; /* null output; useful for testing */
 }
 
 static void
 _vte_skel_create(struct _vte_draw *draw, GtkWidget *widget)
 {
-	struct _vte_skel_data *data;
-
-	draw->impl_data = g_malloc(sizeof(struct _vte_skel_data));
-	data = (struct _vte_skel_data*) draw->impl_data;
-
-	data->color.red = 0;
-	data->color.green = 0;
-	data->color.blue = 0;
-	data->pixmap = NULL;
-	data->pixmapw = data->pixmaph = 0;
-	data->scrollx = data->scrolly = 0;
+	draw->impl_data = g_slice_new0(struct _vte_skel_data);
 }
 
 static void
@@ -65,17 +52,7 @@ _vte_skel_destroy(struct _vte_draw *draw)
 	struct _vte_skel_data *data;
 	data = (struct _vte_skel_data*) draw->impl_data;
 
-	data->scrollx = data->scrolly = 0;
-
-	if (GDK_IS_PIXMAP(data->pixmap)) {
-		g_object_unref(G_OBJECT(data->pixmap));
-		data->pixmap = NULL;
-		data->pixmapw = data->pixmaph = 0;
-	}
-
-	memset(&data->color, 0, sizeof(data->color));
-
-	g_free(draw->impl_data);
+	g_slice_free(struct _vte_skel_data, draw->impl_data);
 }
 
 static GdkVisual *
@@ -95,8 +72,6 @@ _vte_skel_start(struct _vte_draw *draw)
 {
 	struct _vte_skel_data *data;
 	data = (struct _vte_skel_data*) draw->impl_data;
-	gdk_rgb_find_color(gdk_drawable_get_colormap(draw->widget->window),
-			   &data->color);
 }
 
 static void
@@ -107,11 +82,12 @@ _vte_skel_end(struct _vte_draw *draw)
 }
 
 static void
-_vte_skel_set_background_color(struct _vte_draw *draw, GdkColor *color)
+_vte_skel_set_background_color(struct _vte_draw *draw, GdkColor *color, guint16 opacity)
 {
 	struct _vte_skel_data *data;
 	data = (struct _vte_skel_data*) draw->impl_data;
 	data->color = *color;
+	data->opacity = opacity;
 }
 
 static void
@@ -193,6 +169,12 @@ _vte_skel_draw_char(struct _vte_draw *draw,
 	return FALSE;
 }
 
+static gboolean
+_vte_skel_draw_has_char(struct _vte_draw *draw, gunichar c)
+{
+	return FALSE;
+}
+
 static void
 _vte_skel_draw_rectangle(struct _vte_draw *draw,
 			 gint x, gint y, gint width, gint height,
@@ -220,8 +202,8 @@ _vte_skel_set_scroll(struct _vte_draw *draw, gint x, gint y)
 	data->scrolly = y;
 }
 
-struct _vte_draw_impl _vte_draw_skel = {
-	"VteSkel", "VTE_USE_SKEL",
+const struct _vte_draw_impl _vte_draw_skel = {
+	"null",
 	_vte_skel_check,
 	_vte_skel_create,
 	_vte_skel_destroy,
@@ -232,6 +214,7 @@ struct _vte_draw_impl _vte_draw_skel = {
 	_vte_skel_set_background_color,
 	_vte_skel_set_background_image,
 	TRUE,
+	NULL,
 	_vte_skel_clear,
 	_vte_skel_set_text_font,
 	_vte_skel_get_text_width,
@@ -241,6 +224,7 @@ struct _vte_draw_impl _vte_draw_skel = {
 	_vte_skel_get_using_fontconfig,
 	_vte_skel_draw_text,
 	_vte_skel_draw_char,
+	_vte_skel_draw_has_char,
 	_vte_skel_draw_rectangle,
 	_vte_skel_fill_rectangle,
 	_vte_skel_set_scroll,

@@ -19,7 +19,6 @@
 #ifndef vte_vteint_h_included
 #define vte_vteint_h_included
 
-#ident "$Id: vteint.h 1184 2005-08-10 13:29:12Z kmaraas $"
 
 #include "vte.h"
 

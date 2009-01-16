@@ -9,11 +9,17 @@ AC_MSG_CHECKING(for headers required to compile python extensions)
 dnl deduce PYTHON_INCLUDES
 py_prefix=`$PYTHON -c "import sys; print sys.prefix"`
 py_exec_prefix=`$PYTHON -c "import sys; print sys.exec_prefix"`
-PYTHON_INCLUDES="-I${py_prefix}/include/python${PYTHON_VERSION}"
-if test "$py_prefix" != "$py_exec_prefix"; then
-  PYTHON_INCLUDES="$PYTHON_INCLUDES -I${py_exec_prefix}/include/python${PYTHON_VERSION}"
+if test -x "$PYTHON-config"; then
+    PYTHON_INCLUDES=`$PYTHON-config --includes 2>/dev/null`
+else
+    PYTHON_INCLUDES="-I${py_prefix}/include/python${PYTHON_VERSION}"
+    if test "$py_prefix" != "$py_exec_prefix"; then
+      PYTHON_INCLUDES="$PYTHON_INCLUDES -I${py_exec_prefix}/include/python${PYTHON_VERSION}"
+    fi
 fi
+PYTHON_LIBS="-L${py_prefix}/libs -lpython${PYTHON_VERSION}"
 AC_SUBST(PYTHON_INCLUDES)
+AC_SUBST(PYTHON_LIBS)
 dnl check if the headers exist:
 save_CPPFLAGS="$CPPFLAGS"
 CPPFLAGS="$CPPFLAGS $PYTHON_INCLUDES"
@@ -41,7 +47,7 @@ dnl in consequence this function is much more general than their
 dnl specific counterparts like ac_cxx_rtti.m4 that will test for
 dnl -fno-rtti -fno-exceptions
 dnl 
-dnl @version $Id: acinclude.m4 1077 2004-04-20 05:18:45Z nalin $
+dnl @version $Id: acinclude.m4 1917 2007-06-25 08:23:39Z cpwilson $
 dml @author  Guido Draheim <guidod@gmx.de>
 
 AC_DEFUN([AC_CHECK_CC_OPT],

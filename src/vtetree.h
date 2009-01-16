@@ -21,7 +21,6 @@
 #ifndef vte_tree_h_included
 #define vte_tree_h_included
 
-#ident "$Id: vtetree.h 1144 2005-03-02 08:48:59Z kmaraas $"
 
 #include <glib.h>
 

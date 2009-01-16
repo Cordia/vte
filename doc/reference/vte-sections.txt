@@ -11,6 +11,8 @@ vte_terminal_set_pty
 vte_terminal_feed
 vte_terminal_feed_child
 vte_terminal_feed_child_binary
+vte_terminal_select_all
+vte_terminal_select_none
 vte_terminal_copy_clipboard
 vte_terminal_paste_clipboard
 vte_terminal_copy_primary
@@ -32,6 +34,7 @@ vte_terminal_set_color_cursor
 vte_terminal_set_color_highlight
 vte_terminal_set_colors
 vte_terminal_set_default_colors
+vte_terminal_set_opacity
 vte_terminal_set_background_image
 vte_terminal_set_background_image_file
 vte_terminal_set_background_saturation
@@ -55,6 +58,7 @@ vte_terminal_set_mouse_autohide
 vte_terminal_get_mouse_autohide
 vte_terminal_reset
 vte_terminal_get_text
+vte_terminal_get_text_include_trailing_spaces
 vte_terminal_get_text_range
 vte_terminal_get_cursor_position
 vte_terminal_match_clear_all
@@ -135,6 +139,7 @@ vte_buffer
 VteDebugFlags
 vte_capability_string
 vte_capability_quark
+vte_char_attributes
 VteCharAttributes
 VteRing
 VteRingFreeFunc

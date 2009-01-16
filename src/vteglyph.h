@@ -19,7 +19,6 @@
 #ifndef vte_vteglyph_h_included
 #define vte_vteglyph_h_included
 
-#ident "$Id: vteglyph.h 1076 2004-04-20 05:16:56Z nalin $"
 
 #include <gtk/gtk.h>
 #include "vtefc.h"
@@ -55,9 +54,9 @@ struct _vte_glyph {
 };
 
 struct _vte_glyph_cache {
-	GArray *patterns;
+	GPtrArray *patterns;
 	GList *faces;
-	GTree *cache;
+	GHashTable *cache;
 	gint ft_load_flags;
 	gint ft_render_flags;
 	glong width, height, ascent;

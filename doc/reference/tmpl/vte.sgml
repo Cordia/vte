@@ -70,6 +70,13 @@ primarily by #VteTerminalAccessible.
 
 @vteterminal: the object which received the signal.
 
+<!-- ##### SIGNAL VteTerminal::copy-clipboard ##### -->
+<para>
+Emitted whenever vte_terminal_copy_clipboard() is called.
+</para>
+
+@vteterminal: the object which received the signal.
+
 <!-- ##### SIGNAL VteTerminal::cursor-moved ##### -->
 <para>
 Emitted whenever the cursor moves to a new character cell.  Used primarily
@@ -161,6 +168,13 @@ Emitted at the child application's request.
 @vteterminal: the object which received the signal.
 @arg1: the terminal's desired location, X coordinate.
 @arg2: the terminal's desired location, Y coordinate.
+
+<!-- ##### SIGNAL VteTerminal::paste-clipboard ##### -->
+<para>
+Emitted whenever vte_terminal_paste_clipboard() is called.
+</para>
+
+@vteterminal: the object which received the signal.
 
 <!-- ##### SIGNAL VteTerminal::raise-window ##### -->
 <para>
@@ -339,6 +353,22 @@ keys.
 @terminal: 
 @data: 
 @length: 
+
+
+<!-- ##### FUNCTION vte_terminal_select_all ##### -->
+<para>
+
+</para>
+
+@terminal: 
+
+
+<!-- ##### FUNCTION vte_terminal_select_none ##### -->
+<para>
+
+</para>
+
+@terminal: 
 
 
 <!-- ##### FUNCTION vte_terminal_copy_clipboard ##### -->
@@ -527,6 +557,15 @@ keys.
 </para>
 
 @terminal: 
+
+
+<!-- ##### FUNCTION vte_terminal_set_opacity ##### -->
+<para>
+
+</para>
+
+@terminal: 
+@opacity: 
 
 
 <!-- ##### FUNCTION vte_terminal_set_background_image ##### -->
@@ -732,6 +771,18 @@ keys.
 
 
 <!-- ##### FUNCTION vte_terminal_get_text ##### -->
+<para>
+
+</para>
+
+@terminal: 
+@is_selected: 
+@data: 
+@attributes: 
+@Returns: 
+
+
+<!-- ##### FUNCTION vte_terminal_get_text_include_trailing_spaces ##### -->
 <para>
 
 </para>

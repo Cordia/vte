@@ -16,16 +16,16 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vtergb.c 785 2003-04-21 02:50:46Z nalin $"
 
 #include "../config.h"
 
 #include <gdk/gdk.h>
 #include <glib.h>
-#include <fontconfig/fontconfig.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include "vtergb.h"
+
+#define ALIGN(x, a) (((x)+((a)-1))&~((a)-1))
 
 struct _vte_rgb_buffer_p {
 	guchar *pixels;
@@ -38,15 +38,16 @@ _vte_rgb_buffer_new(gint width, gint height)
 {
 	struct _vte_rgb_buffer_p *ret;
 
-	ret = g_malloc0(sizeof(*ret));
+	ret = g_slice_new(struct _vte_rgb_buffer_p);
 
 	width = MAX(width, 1);
 	height = MAX(height, 1);
 
-	ret->width = width;
+	ret->width  = width;
 	ret->height = height;
-	ret->stride = width * 3;
-	ret->length = width * height * 3;
+	/* gdk_rgb prefers a row-alignment of 4 */
+	ret->stride = 3 * ALIGN(width, 4);
+	ret->length = ret->stride * height;
 	ret->pixels = g_malloc(ret->length);
 
 	return (struct _vte_rgb_buffer *) ret;
@@ -58,14 +59,7 @@ _vte_rgb_buffer_free(struct _vte_rgb_buffer *buffer)
 	struct _vte_rgb_buffer_p *buf = (struct _vte_rgb_buffer_p *) buffer;
 
 	g_free(buf->pixels);
-
-	buf->length = 0;
-	buf->stride = 0;
-	buf->height = 0;
-	buf->width = 0;
-	buf->pixels = NULL;
-
-	g_free(buf);
+	g_slice_free(struct _vte_rgb_buffer_p, buf);
 }
 
 void
@@ -74,8 +68,10 @@ _vte_rgb_buffer_resize(struct _vte_rgb_buffer *buffer,
 		       gint minimum_height)
 {
 	struct _vte_rgb_buffer_p *buf = (struct _vte_rgb_buffer_p *) buffer;
-	gssize size = minimum_width * minimum_height * 3;
+	gint stride, size;
 
+	stride = 3 * ALIGN(minimum_width, 4);
+	size = stride * minimum_height;
 	if (size > buf->length) {
 		g_free(buf->pixels);
 		buf->length = size;
@@ -84,7 +80,7 @@ _vte_rgb_buffer_resize(struct _vte_rgb_buffer *buffer,
 
 	buf->width = minimum_width;
 	buf->height = minimum_height;
-	buf->stride = buf->width * 3;
+	buf->stride = stride;
 }
 
 void
@@ -92,8 +88,8 @@ _vte_rgb_draw_color_rgb(struct _vte_rgb_buffer *buffer,
 			gint x, gint y, gint width, gint height,
 			guchar r, guchar g, guchar b)
 {
-	gint row, rows, col, cols;
-	gint offset, dest, count;
+	gint i, cols, rows;
+	gint count, stride;
 	guchar *pixels;
 
 	/* Perform a simple clipping check. */
@@ -116,21 +112,24 @@ _vte_rgb_draw_color_rgb(struct _vte_rgb_buffer *buffer,
 	if (cols <= x) {
 		return;
 	}
+	cols = cols - x;
+	rows = rows - y;
 
+	stride = buffer->stride;
+	pixels += y * stride + x * 3;
+	count = cols * 3;
 	/* Draw the first row by iteration. */
-	dest = y * buffer->stride + x * 3;
-	offset = dest;
-	for (col = x; col < cols; col++) {
-		pixels[dest++] = r;
-		pixels[dest++] = g;
-		pixels[dest++] = b;
+	i = 0;
+	while(cols--) {
+		pixels[i++] = r;
+		pixels[i++] = g;
+		pixels[i++] = b;
 	}
-
 	/* Draw the other rows by copying the data. */
-	count = width * 3;
-	for (row = y + 1; row < rows; row++) {
-		dest = row * buffer->stride + x * 3;
-		memmove(pixels + dest, pixels + offset, count);
+	i = 0;
+	while (--rows) {
+		i += stride;
+		memcpy(pixels + i, pixels, count);
 	}
 }
 
@@ -251,6 +250,29 @@ _vte_rgb_draw_on_drawable(GdkDrawable *drawable, GdkGC *gc,
 			   ybias * buffer->stride +
 			   xbias * 3,
 			   buffer->stride);
+}
+
+void
+_vte_rgb_copy(struct _vte_rgb_buffer *buffer,
+		int src_x, int src_y, int width, int height, int dst_x, int dst_y)
+{
+	guchar *src, *dst;
+	gint stride;
+
+	g_assert (src_x > 0);
+	g_assert (dst_x >= src_x + width);
+	g_assert (dst_x <= buffer->width);
+
+	stride = buffer->stride;
+	src = buffer->pixels + src_y * stride + 3 * src_x;
+	dst = buffer->pixels + dst_y * stride + 3 * dst_x;
+	width *= 3;
+
+	while (height--) {
+		memcpy (dst, src, width);
+		src += stride;
+		dst += stride;
+	}
 }
 
 void

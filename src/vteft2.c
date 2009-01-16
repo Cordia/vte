@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: vteft2.c 1076 2004-04-20 05:16:56Z nalin $"
 
 #include "../config.h"
 
@@ -55,13 +54,8 @@ _vte_ft2_check(struct _vte_draw *draw, GtkWidget *widget)
 static void
 _vte_ft2_create(struct _vte_draw *draw, GtkWidget *widget)
 {
-	struct _vte_ft2_data *data;
-	data = (struct _vte_ft2_data*) g_malloc0(sizeof(struct _vte_ft2_data));
-	draw->impl_data = data;
-	data->rgb = NULL;
-	memset(&data->color, 0, sizeof(data->color));
-	data->pixbuf = NULL;
-	data->scrollx = data->scrolly = 0;
+	draw->impl_data = g_slice_new0(struct _vte_ft2_data);
+	gtk_widget_set_double_buffered (widget, FALSE);
 }
 
 static void
@@ -71,18 +65,14 @@ _vte_ft2_destroy(struct _vte_draw *draw)
 	data = (struct _vte_ft2_data*) draw->impl_data;
 	if (data->cache != NULL) {
 		_vte_glyph_cache_free(data->cache);
-		data->cache = NULL;
 	}
 	if (data->rgb != NULL) {
 		_vte_rgb_buffer_free(data->rgb);
 	}
-	memset(&data->color, 0, sizeof(data->color));
-	if (GDK_IS_PIXBUF(data->pixbuf)) {
-		g_object_unref(G_OBJECT(data->pixbuf));
-		data->pixbuf = NULL;
+	if (data->pixbuf != NULL) {
+		g_object_unref(data->pixbuf);
 	}
-	data->scrollx = data->scrolly = 0;
-	g_free(data);
+	g_slice_free(struct _vte_ft2_data, data);
 }
 
 static GdkVisual *
@@ -104,37 +94,32 @@ _vte_ft2_start(struct _vte_draw *draw)
 	guint width, height;
 	data = (struct _vte_ft2_data*) draw->impl_data;
 
-	gdk_window_get_geometry(draw->widget->window,
-				NULL, NULL, &width, &height, NULL);
+	width = draw->widget->allocation.width;
+	height = draw->widget->allocation.height;
 	if (data->rgb == NULL) {
 		data->rgb = _vte_rgb_buffer_new(width, height);
 	} else {
 		_vte_rgb_buffer_resize(data->rgb, width, height);
 	}
-	data->left = data->right = data->top = data->bottom = -1;
+	data->left = data->top = G_MAXINT;
+	data->right = data->bottom = -G_MAXINT;
 }
 
 static void
 _vte_ft2_end(struct _vte_draw *draw)
 {
 	struct _vte_ft2_data *data;
-	guint width, height;
 	GtkWidget *widget;
 	GtkStateType state;
 	data = (struct _vte_ft2_data*) draw->impl_data;
 	widget = draw->widget;
-	gdk_window_get_geometry(widget->window,
-				NULL, NULL, &width, &height, NULL);
-	gtk_widget_ensure_style(widget);
 	state = GTK_WIDGET_STATE(widget);
-	if ((data->left == -1) &&
-	    (data->right == -1) &&
-	    (data->top == -1) &&
-	    (data->bottom == -1)) {
+	if (data->right < data->left) {
 		_vte_rgb_draw_on_drawable(widget->window,
 					  widget->style->fg_gc[state],
 					  0, 0,
-					  width, height,
+						widget->allocation.width,
+						widget->allocation.height,
 					  data->rgb,
 					  0, 0);
 	} else {
@@ -146,10 +131,11 @@ _vte_ft2_end(struct _vte_draw *draw)
 					  data->rgb,
 					  data->left, data->top);
 	}
+	gdk_gc_set_clip_region(widget->style->fg_gc[state], NULL);
 }
 
 static void
-_vte_ft2_set_background_color(struct _vte_draw *draw, GdkColor *color)
+_vte_ft2_set_background_color(struct _vte_draw *draw, GdkColor *color, guint16 opacity)
 {
 	struct _vte_ft2_data *data;
 	data = (struct _vte_ft2_data*) draw->impl_data;
@@ -166,28 +152,40 @@ _vte_ft2_set_background_image(struct _vte_draw *draw,
 {
 	struct _vte_ft2_data *data;
 	GdkPixbuf *bgpixbuf;
+	GdkScreen *screen;
+
+	screen = gtk_widget_get_screen(draw->widget);
 
 	data = (struct _vte_ft2_data*) draw->impl_data;
 
-	bgpixbuf = vte_bg_get_pixbuf(vte_bg_get(), type, pixbuf, file,
+	bgpixbuf = vte_bg_get_pixbuf(vte_bg_get_for_screen(screen),
+				     type, pixbuf, file,
 				     color, saturation);
-	if (GDK_IS_PIXBUF(data->pixbuf)) {
-		g_object_unref(G_OBJECT(data->pixbuf));
+	if (data->pixbuf != NULL) {
+		g_object_unref(data->pixbuf);
 	}
 	data->pixbuf = bgpixbuf;
+	draw->requires_clear = bgpixbuf != NULL;
 }
 
 static void
+_vte_ft2_clip(struct _vte_draw *draw, GdkRegion *region)
+{
+	gdk_gc_set_clip_region(
+			draw->widget->style->fg_gc[GTK_WIDGET_STATE(draw->widget)],
+			region);
+}
+
+static inline void
 update_bbox(struct _vte_ft2_data *data, gint x, gint y, gint width, gint height)
 {
-	data->left = (data->left == -1) ?
-		     x : MIN(data->left, x);
-	data->right = (data->right == -1) ?
-		      x + width - 1 : MAX(data->right, x + width - 1);
-	data->top = (data->top == -1) ?
-		    y : MIN(data->top, y);
-	data->bottom = (data->bottom == -1) ?
-		       y + height - 1 : MAX(data->bottom, y + height - 1);
+	if (x < data->left) data->left = x;
+	x += width - 1;
+	if (x > data->right) data->right = x;
+
+	if (y < data->top) data->top = y;
+	y += height - 1;
+	if (y > data->bottom) data->bottom = y;
 }
 
 static void
@@ -197,7 +195,7 @@ _vte_ft2_clear(struct _vte_draw *draw,
 	struct _vte_ft2_data *data;
 	data = (struct _vte_ft2_data*) draw->impl_data;
 
-	if (GDK_IS_PIXBUF(data->pixbuf)) {
+	if (data->pixbuf != NULL) {
 		/* Tile a pixbuf in. */
 		_vte_rgb_draw_pixbuf(data->rgb, x, y, width, height,
 				     data->pixbuf,
@@ -221,12 +219,16 @@ _vte_ft2_set_text_font(struct _vte_draw *draw,
 
 	if (data->cache != NULL) {
 		_vte_glyph_cache_free(data->cache);
-		data->cache = NULL;
 	}
 	data->cache = _vte_glyph_cache_new();
 	_vte_glyph_cache_set_font_description(draw->widget, NULL,
 					      data->cache, fontdesc, anti_alias,
 					      NULL, NULL);
+	_vte_debug_print(VTE_DEBUG_MISC,
+			"VteFT2 font metrics = %ldx%ld (%ld).\n",
+			data->cache->width,
+			data->cache->height,
+			data->cache->ascent);
 }
 
 static int
@@ -281,11 +283,14 @@ _vte_ft2_draw_text(struct _vte_draw *draw,
 		   GdkColor *color, guchar alpha)
 {
 	struct _vte_ft2_data *data;
-	int i;
+	gsize i, j;
 
 	data = (struct _vte_ft2_data*) draw->impl_data;
 
 	for (i = 0; i < n_requests; i++) {
+		if (requests[i].c == (gunichar)-1 ||
+			       	requests[i].c == 32 /* space */)
+			continue;
 		_vte_glyph_draw(data->cache, requests[i].c, color,
 				requests[i].x, requests[i].y,
 				requests[i].columns,
@@ -294,6 +299,18 @@ _vte_ft2_draw_text(struct _vte_draw *draw,
 		update_bbox(data, requests[i].x, requests[i].y,
 			    data->cache->width * requests[i].columns,
 			    data->cache->height);
+		for (j = i + 1; j < n_requests; j++) {
+			if (requests[j].c == requests[i].c) {
+				_vte_rgb_copy(data->rgb,
+						requests[i].x, requests[i].y,
+						requests[i].columns * data->cache->width, data->cache->height,
+						requests[j].x, requests[j].y);
+				update_bbox(data, requests[j].x, requests[j].y,
+						data->cache->width * requests[j].columns,
+						data->cache->height);
+				requests[j].c = -1;
+			}
+		}
 	}
 }
 
@@ -309,6 +326,21 @@ _vte_ft2_draw_char(struct _vte_draw *draw,
 	if (data->cache != NULL) {
 		if (_vte_glyph_get(data->cache, request->c) != NULL) {
 			_vte_ft2_draw_text(draw, request, 1, color, alpha);
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static gboolean
+_vte_ft2_draw_has_char(struct _vte_draw *draw, gunichar c)
+{
+	struct _vte_ft2_data *data;
+
+	data = (struct _vte_ft2_data*) draw->impl_data;
+
+	if (data->cache != NULL) {
+		if (_vte_glyph_get(data->cache, c) != NULL) {
 			return TRUE;
 		}
 	}
@@ -365,8 +397,8 @@ _vte_ft2_set_scroll(struct _vte_draw *draw, gint x, gint y)
 	data->scrolly = y;
 }
 
-struct _vte_draw_impl _vte_draw_ft2 = {
-	"VteFT2", "VTE_USE_FT2",
+const struct _vte_draw_impl _vte_draw_ft2 = {
+	"ft2",
 	_vte_ft2_check,
 	_vte_ft2_create,
 	_vte_ft2_destroy,
@@ -377,6 +409,7 @@ struct _vte_draw_impl _vte_draw_ft2 = {
 	_vte_ft2_set_background_color,
 	_vte_ft2_set_background_image,
 	FALSE,
+	_vte_ft2_clip,
 	_vte_ft2_clear,
 	_vte_ft2_set_text_font,
 	_vte_ft2_get_text_width,
@@ -386,6 +419,7 @@ struct _vte_draw_impl _vte_draw_ft2 = {
 	_vte_ft2_get_using_fontconfig,
 	_vte_ft2_draw_text,
 	_vte_ft2_draw_char,
+	_vte_ft2_draw_has_char,
 	_vte_ft2_draw_rectangle,
 	_vte_ft2_fill_rectangle,
 	_vte_ft2_set_scroll,

@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ident "$Id: slowcat.c 1085 2004-04-27 20:48:17Z nalin $"
 #include "../config.h"
 #include <sys/time.h>
 #include <sys/types.h>
@@ -98,7 +97,7 @@ main(int argc, char **argv)
 			}
 			break;
 		default:
-			fprintf(stderr, "Usage: slowcat [-t delay] [-c chunksize] [file ...]\n");
+			g_printerr("Usage: slowcat [-t delay] [-c chunksize] [file ...]\n");
 			exit(1);
 			break;
 		}

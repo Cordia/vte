@@ -1,3 +1,9 @@
+vte (1:0.16.14-0maemo1) bora; urgency=low
+
+  * Moving to upstream 0.16.14
+
+ -- Gabriel Schulhof <gabriel.schulhof@nokia.com>  Thu, 11 Dec 2008 10:35:29 +0200
+
 vte (1:0.12.2-0mh7) bora; urgency=low
 
   * Some fixes to this file (debian/changelog).

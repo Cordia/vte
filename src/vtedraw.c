@@ -18,12 +18,12 @@
 
 /* The interfaces in this file are subject to change at any time. */
 
-#ident "$Id: vtedraw.c 1219 2006-02-03 13:27:27Z behdad $"
 
 #include "../config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <glib.h>
 #include <gtk/gtk.h>
 #include "debug.h"
@@ -35,22 +35,19 @@
 #include "vteskel.h"
 #include "vtexft.h"
 
-struct _vte_draw_impl
+static const struct _vte_draw_impl
 *_vte_draw_impls[] = {
-	&_vte_draw_skel,
 #ifndef X_DISPLAY_MISSING
 #ifdef HAVE_XFT2
 	&_vte_draw_xft,
 #endif /* HAVE_XFT2 */
 #endif /* !X_DISPLAY_MISSING */
 	&_vte_draw_ft2,
-#if GTK_CHECK_VERSION(2,2,0)
 #ifndef X_DISPLAY_MISSING
 #ifdef HAVE_GL
 	&_vte_draw_gl,
 #endif /* HAVE_GL */
 #endif /* !X_DISPLAY_MISSING */
-#endif /* GTK_CHECK_VERSION(2,2,0) */
 	&_vte_draw_pango,
 #ifndef X_DISPLAY_MISSING
 #ifdef HAVE_PANGOX
@@ -59,261 +56,370 @@ struct _vte_draw_impl
 #endif /* !X_DISPLAY_MISSING */
 };
 
-struct _vte_draw *
-_vte_draw_new(GtkWidget *widget)
+static gboolean
+_vte_draw_init_user (struct _vte_draw *draw)
 {
-	int i;
-	struct _vte_draw *draw;
-	char *var;
+	const gchar *env;
+	gchar **strv, **s;
+	guint i;
+	gboolean success = TRUE;
 
-	/* Create the structure. */
-	draw = g_malloc0(sizeof(struct _vte_draw));
-	g_object_ref(G_OBJECT(widget));
-	draw->widget = widget;
-	draw->started = FALSE;
+	env = g_getenv ("VTE_BACKEND");
+	if (!env) {
+		return FALSE;
+	}
 
-	/* Let each implementation decide if it's right for the job. */
-	for (i = 0; i < G_N_ELEMENTS(_vte_draw_impls); i++) {
-		if (_vte_draw_impls[i]->environment != NULL) {
-			var = getenv(_vte_draw_impls[i]->environment);
-			if (var != NULL) {
-				if (atol(var) == 0) {
-					continue;
+	strv = g_strsplit (env, ":;, \t", -1);
+	for (s = strv; *s; s++) {
+		char *p;
+
+		/* lower it */
+		for (p = *s; *p; p++)
+			*p = g_ascii_tolower (*p);
+
+		/* match null draw */
+		if (strcmp (*s, _vte_draw_skel.name) == 0) {
+			draw->impl = &_vte_draw_skel;
+			goto out;
+		}
+
+		/* list available draws */
+		if (strcmp (*s, "list") == 0) {
+			for (i = 0; i < G_N_ELEMENTS (_vte_draw_impls); i++) {
+				g_printerr ("vte backend: %s\n", _vte_draw_impls[i]->name);
+			}
+			continue;
+		}
+
+		/* find among available draws */
+		for (i = 0; i < G_N_ELEMENTS (_vte_draw_impls); i++) {
+			if (strcmp (*s, _vte_draw_impls[i]->name) == 0) {
+				if (_vte_draw_impls[i]->check (draw, draw->widget)) {
+					draw->impl = _vte_draw_impls[i];
+					goto out;
 				}
 			}
 		}
-		if (_vte_draw_impls[i]->check(draw, draw->widget)) {
+	}
+
+	success = FALSE;
+out:
+	g_strfreev (strv);
+	return success;
+}
+
+
+static gboolean
+_vte_draw_init_default (struct _vte_draw *draw)
+{
+	guint i;
+
+	for (i = 0; i < G_N_ELEMENTS (_vte_draw_impls); i++) {
+		if (_vte_draw_impls[i]->check (draw, draw->widget)) {
 			draw->impl = _vte_draw_impls[i];
-			draw->impl->create(draw, draw->widget);
-			break;
+			return TRUE;
 		}
 	}
 
-	/* Something has to have worked. */
-	g_assert(i < G_N_ELEMENTS(_vte_draw_impls));
+	return FALSE;
+}
 
-#ifdef VTE_DEBUG
-	if (_vte_debug_on(VTE_DEBUG_MISC)) {
-		fprintf(stderr, "Using %s.\n", draw->impl->name);
+
+struct _vte_draw *
+_vte_draw_new (GtkWidget *widget)
+{
+	struct _vte_draw *draw;
+
+	/* Create the structure. */
+	draw = g_slice_new0 (struct _vte_draw);
+	draw->widget = g_object_ref (widget);
+	draw->started = FALSE;
+
+	/* Allow the user to specify her preferred backends */
+	if (!_vte_draw_init_user (draw) &&
+			/* Otherwise use the first thing that works */
+			!_vte_draw_init_default (draw)) {
+		/* Something has to work. */
+		g_assert_not_reached ();
+		draw->impl = &_vte_draw_skel;
 	}
-#endif
+
+	_vte_debug_print (VTE_DEBUG_DRAW,
+			"draw_new (%s)\n", draw->impl->name);
+	_vte_debug_print (VTE_DEBUG_MISC, "Using %s.\n", draw->impl->name);
+
+	draw->impl->create (draw, draw->widget);
 
 	return draw;
 }
 
 void
-_vte_draw_free(struct _vte_draw *draw)
+_vte_draw_free (struct _vte_draw *draw)
 {
-	draw->impl->destroy(draw);
-	draw->impl = NULL;
-	draw->impl_data = NULL;
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_free\n");
+	draw->impl->destroy (draw);
 
-	if (GTK_IS_WIDGET(draw->widget)) {
-		g_object_unref(G_OBJECT(draw->widget));
-		draw->widget = NULL;
+	if (draw->widget != NULL) {
+		g_object_unref (draw->widget);
 	}
-	draw->started = FALSE;
 
-	g_free(draw);
+	g_slice_free (struct _vte_draw, draw);
 }
 
 GdkVisual *
-_vte_draw_get_visual(struct _vte_draw *draw)
+_vte_draw_get_visual (struct _vte_draw *draw)
 {
-	g_return_val_if_fail(draw->impl != NULL, NULL);
-	g_return_val_if_fail(draw->impl->get_visual != NULL, NULL);
-	return draw->impl->get_visual(draw);
+	g_return_val_if_fail (draw->impl != NULL, NULL);
+	g_return_val_if_fail (draw->impl->get_visual != NULL, NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_get_visual\n");
+	return draw->impl->get_visual (draw);
 }
 
 GdkColormap *
-_vte_draw_get_colormap(struct _vte_draw *draw, gboolean maybe_use_default)
+_vte_draw_get_colormap (struct _vte_draw *draw, gboolean maybe_use_default)
 {
 	GdkColormap *colormap;
-#if GTK_CHECK_VERSION(2,2,0)
 	GdkScreen *screen;
-#endif
-	g_return_val_if_fail(draw->impl != NULL, NULL);
-	g_return_val_if_fail(draw->impl->get_colormap != NULL, NULL);
-	colormap = draw->impl->get_colormap(draw);
+	g_return_val_if_fail (draw->impl != NULL, NULL);
+	g_return_val_if_fail (draw->impl->get_colormap != NULL, NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_get_colormap\n");
+	colormap = draw->impl->get_colormap (draw);
 	if (colormap) {
 		return colormap;
 	}
 	if (!maybe_use_default) {
 		return NULL;
 	}
-#if GTK_CHECK_VERSION(2,2,0)
-	if (gtk_widget_has_screen(draw->widget)) {
-		screen = gtk_widget_get_screen(draw->widget);
-	} else {
-		screen = gdk_display_get_default_screen(gtk_widget_get_display(draw->widget));
-	}
-	colormap = gdk_screen_get_default_colormap(screen);
-#else
-	colormap = gdk_colormap_get_system();
-#endif
+	screen = gtk_widget_get_screen (draw->widget);
+	colormap = gdk_screen_get_default_colormap (screen);
 	return colormap;
 }
 
 void
-_vte_draw_start(struct _vte_draw *draw)
+_vte_draw_start (struct _vte_draw *draw)
 {
-	g_return_if_fail(GTK_WIDGET_REALIZED(draw->widget));
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->start != NULL);
-	g_object_ref(G_OBJECT(draw->widget->window));
-	draw->impl->start(draw);
+	g_return_if_fail (GTK_WIDGET_REALIZED (draw->widget));
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->start != NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_start\n");
+	g_object_ref (draw->widget->window);
+	draw->impl->start (draw);
 	draw->started = TRUE;
 }
 
 void
-_vte_draw_end(struct _vte_draw *draw)
+_vte_draw_end (struct _vte_draw *draw)
 {
-	g_return_if_fail(draw->started == TRUE);
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->end != NULL);
-	draw->impl->end(draw);
-	g_object_unref(G_OBJECT(draw->widget->window));
+	g_return_if_fail (draw->started == TRUE);
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->end != NULL);
+	draw->impl->end (draw);
+	g_object_unref (draw->widget->window);
 	draw->started = FALSE;
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_end\n");
 }
 
 void
-_vte_draw_set_background_color(struct _vte_draw *draw, GdkColor *color)
+_vte_draw_set_background_color (struct _vte_draw *draw,
+			       GdkColor *color,
+			       guint16 opacity)
 {
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->set_background_color != NULL);
-	draw->impl->set_background_color(draw, color);
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->set_background_color != NULL);
+	draw->impl->set_background_color (draw, color, opacity);
 }
 
 void
-_vte_draw_set_background_image(struct _vte_draw *draw,
+_vte_draw_set_background_image (struct _vte_draw *draw,
 			       enum VteBgSourceType type,
 			       GdkPixbuf *pixbuf,
 			       const char *filename,
 			       const GdkColor *color,
 			       double saturation)
 {
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->set_background_image != NULL);
-	draw->impl->set_background_image(draw, type, pixbuf, filename,
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->set_background_image != NULL);
+	draw->impl->set_background_image (draw, type, pixbuf, filename,
 					 color, saturation);
 }
 
 gboolean
-_vte_draw_requires_repaint(struct _vte_draw *draw)
+_vte_draw_requires_clear (struct _vte_draw *draw)
 {
-	g_return_val_if_fail(draw->impl != NULL, TRUE);
+	return draw->requires_clear;
+}
+
+gboolean
+_vte_draw_requires_repaint (struct _vte_draw *draw)
+{
+	g_return_val_if_fail (draw->impl != NULL, TRUE);
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_requires_repaint = %d\n",
+			draw->impl->requires_repaint);
 	return draw->impl->requires_repaint;
 }
 
-void
-_vte_draw_clear(struct _vte_draw *draw, gint x, gint y, gint width, gint height)
+gboolean
+_vte_draw_clip (struct _vte_draw *draw, GdkRegion *region)
 {
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->clear != NULL);
-	draw->impl->clear(draw, x, y, width, height);
+	g_return_val_if_fail (draw->impl != NULL, FALSE);
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_clip\n");
+	if (draw->impl->clip == NULL) {
+		return FALSE;
+	}
+	draw->impl->clip (draw, region);
+	return TRUE;
 }
 
 void
-_vte_draw_set_text_font(struct _vte_draw *draw,
+_vte_draw_clear (struct _vte_draw *draw, gint x, gint y, gint width, gint height)
+{
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->clear != NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_clear (%d, %d, %d, %d)\n",
+			x,y,width, height);
+	draw->impl->clear (draw, x, y, width, height);
+}
+
+void
+_vte_draw_set_text_font (struct _vte_draw *draw,
 			const PangoFontDescription *fontdesc,
 			VteTerminalAntiAlias anti_alias)
 {
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->set_text_font != NULL);
-	draw->impl->set_text_font(draw, fontdesc, anti_alias);
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->set_text_font != NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_set_text_font (aa=%d)\n",
+			anti_alias);
+	draw->impl->set_text_font (draw, fontdesc, anti_alias);
 }
 
 int
-_vte_draw_get_text_width(struct _vte_draw *draw)
+_vte_draw_get_text_width (struct _vte_draw *draw)
 {
-	g_return_val_if_fail(draw->impl != NULL, 1);
-	g_return_val_if_fail(draw->impl->get_text_width != NULL, 1);
-	return draw->impl->get_text_width(draw);
+	g_return_val_if_fail (draw->impl != NULL, 1);
+	g_return_val_if_fail (draw->impl->get_text_width != NULL, 1);
+	return draw->impl->get_text_width (draw);
 }
 
 int
-_vte_draw_get_text_height(struct _vte_draw *draw)
+_vte_draw_get_text_height (struct _vte_draw *draw)
 {
-	g_return_val_if_fail(draw->impl != NULL, 1);
-	g_return_val_if_fail(draw->impl->get_text_height != NULL, 1);
-	return draw->impl->get_text_height(draw);
+	g_return_val_if_fail (draw->impl != NULL, 1);
+	g_return_val_if_fail (draw->impl->get_text_height != NULL, 1);
+	return draw->impl->get_text_height (draw);
 }
 
 int
-_vte_draw_get_text_ascent(struct _vte_draw *draw)
+_vte_draw_get_text_ascent (struct _vte_draw *draw)
 {
-	g_return_val_if_fail(draw->impl != NULL, 1);
-	g_return_val_if_fail(draw->impl->get_text_ascent != NULL, 1);
-	return draw->impl->get_text_ascent(draw);
+	g_return_val_if_fail (draw->impl != NULL, 1);
+	g_return_val_if_fail (draw->impl->get_text_ascent != NULL, 1);
+	return draw->impl->get_text_ascent (draw);
 }
 
 int
-_vte_draw_get_char_width(struct _vte_draw *draw, gunichar c, int columns)
+_vte_draw_get_char_width (struct _vte_draw *draw, gunichar c, int columns)
 {
-	g_return_val_if_fail(draw->impl != NULL, 1);
-	g_return_val_if_fail(draw->impl->get_char_width != NULL, 1);
-	return draw->impl->get_char_width(draw, c, columns);
+	g_return_val_if_fail (draw->impl != NULL, 1);
+	g_return_val_if_fail (draw->impl->get_char_width != NULL, 1);
+	return draw->impl->get_char_width (draw, c, columns);
 }
 
 gboolean
-_vte_draw_get_using_fontconfig(struct _vte_draw *draw)
+_vte_draw_get_using_fontconfig (struct _vte_draw *draw)
 {
-	g_return_val_if_fail(draw->impl != NULL, 1);
-	g_return_val_if_fail(draw->impl->get_using_fontconfig != NULL, FALSE);
-	return draw->impl->get_using_fontconfig(draw);
+	g_return_val_if_fail (draw->impl != NULL, TRUE);
+	g_return_val_if_fail (draw->impl->get_using_fontconfig != NULL, FALSE);
+	return draw->impl->get_using_fontconfig (draw);
 }
 
 void
-_vte_draw_text(struct _vte_draw *draw,
+_vte_draw_text (struct _vte_draw *draw,
 	       struct _vte_draw_text_request *requests, gsize n_requests,
 	       GdkColor *color, guchar alpha)
 {
-	g_return_if_fail(draw->started == TRUE);
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->draw_text != NULL);
-	draw->impl->draw_text(draw, requests, n_requests, color, alpha);
+	g_return_if_fail (draw->started == TRUE);
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->draw_text != NULL);
+	if (_vte_debug_on (VTE_DEBUG_DRAW)) {
+		GString *string = g_string_new ("");
+		gchar *str;
+		gsize n;
+		for (n = 0; n < n_requests; n++) {
+			g_string_append_unichar (string, requests[n].c);
+		}
+		str = g_string_free (string, FALSE);
+		g_printerr ("draw_text (\"%s\", len=%"G_GSIZE_FORMAT", color=(%d,%d,%d,%d))\n",
+				str, n_requests, color->red, color->green, color->blue,
+				alpha);
+		g_free (str);
+	}
+	draw->impl->draw_text (draw, requests, n_requests, color, alpha);
 }
 
 gboolean
-_vte_draw_char(struct _vte_draw *draw,
+_vte_draw_char (struct _vte_draw *draw,
 	       struct _vte_draw_text_request *request,
 	       GdkColor *color, guchar alpha)
 {
-	g_return_val_if_fail(draw->started == TRUE, FALSE);
-	g_return_val_if_fail(draw->impl != NULL, FALSE);
+	g_return_val_if_fail (draw->started == TRUE, FALSE);
+	g_return_val_if_fail (draw->impl != NULL, FALSE);
+	_vte_debug_print (VTE_DEBUG_DRAW,
+			"draw_char ('%c', color=(%d,%d,%d,%d))\n",
+			request->c,
+			color->red, color->green, color->blue,
+			alpha);
 	if (draw->impl->draw_char == NULL) {
-		draw->impl->draw_text(draw, request, 1, color, alpha);
+		draw->impl->draw_text (draw, request, 1, color, alpha);
 		return TRUE;
 	}
-	return draw->impl->draw_char(draw, request, color, alpha);
+	return draw->impl->draw_char (draw, request, color, alpha);
+}
+gboolean
+_vte_draw_has_char (struct _vte_draw *draw, gunichar c)
+{
+	_vte_debug_print (VTE_DEBUG_DRAW, "draw_has_char ('%c')\n", c);
+	return draw->impl->has_char (draw, c);
 }
 
 void
-_vte_draw_fill_rectangle(struct _vte_draw *draw,
+_vte_draw_fill_rectangle (struct _vte_draw *draw,
 			 gint x, gint y, gint width, gint height,
 			 GdkColor *color, guchar alpha)
 {
-	g_return_if_fail(draw->started == TRUE);
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->fill_rectangle != NULL);
-	draw->impl->fill_rectangle(draw, x, y, width, height, color, alpha);
+	g_return_if_fail (draw->started == TRUE);
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->fill_rectangle != NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW,
+			"draw_fill_rectangle (%d, %d, %d, %d, color=(%d,%d,%d,%d))\n",
+			x,y,width,height,
+			color->red, color->green, color->blue,
+			alpha);
+	draw->impl->fill_rectangle (draw, x, y, width, height, color, alpha);
 }
 
 void
-_vte_draw_draw_rectangle(struct _vte_draw *draw,
+_vte_draw_draw_rectangle (struct _vte_draw *draw,
 			 gint x, gint y, gint width, gint height,
 			 GdkColor *color, guchar alpha)
 {
-	g_return_if_fail(draw->started == TRUE);
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->draw_rectangle != NULL);
-	draw->impl->draw_rectangle(draw, x, y, width, height, color, alpha);
+	g_return_if_fail (draw->started == TRUE);
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->draw_rectangle != NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW,
+			"draw_rectangle (%d, %d, %d, %d, color=(%d,%d,%d,%d))\n",
+			x,y,width,height,
+			color->red, color->green, color->blue,
+			alpha);
+	draw->impl->draw_rectangle (draw, x, y, width, height, color, alpha);
 }
 
 void
-_vte_draw_set_scroll(struct _vte_draw *draw, gint x, gint y)
+_vte_draw_set_scroll (struct _vte_draw *draw, gint x, gint y)
 {
-	g_return_if_fail(draw->impl != NULL);
-	g_return_if_fail(draw->impl->set_scroll != NULL);
-	draw->impl->set_scroll(draw, x, y);
+	g_return_if_fail (draw->impl != NULL);
+	g_return_if_fail (draw->impl->set_scroll != NULL);
+	_vte_debug_print (VTE_DEBUG_DRAW,
+			"draw_set_scroll (%d, %d)\n",
+			x, y);
+	draw->impl->set_scroll (draw, x, y);
 }

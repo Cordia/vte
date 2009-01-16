@@ -19,7 +19,6 @@
 #ifndef vte_vte_rgbh_included
 #define vte_vte_rgbh_included
 
-#ident "$Id: vtergb.h 854 2003-05-05 23:23:46Z nalin $"
 
 #include <gdk/gdk.h>
 #include <glib.h>
@@ -48,5 +47,7 @@ void _vte_rgb_draw_on_drawable(GdkDrawable *drawable, GdkGC *gc,
 			       gint x, gint y, gint width, gint height,
 			       struct _vte_rgb_buffer *buffer,
 			       gint xbias, gint ybias);
+void _vte_rgb_copy(struct _vte_rgb_buffer *buffer,
+		int src_x, int src_y, int width, int height, int dst_x, int dst_y);
 
 #endif
