@@ -1,3 +1,9 @@
+vte (1:0.16.14-0mh9unreleased) bora; urgency=low
+
+  * Added gnome-pty-helper to debian/libvte4.files
+
+ -- Gabriel Schulhof <gabriel.schulhof@nokia.com>  Mon,  9 Mar 2009 13:12:38 +0200
+
 vte (1:0.16.14-0mh8) bora; urgency=low
 
   * Moving to upstream 0.16.14
