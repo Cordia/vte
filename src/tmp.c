@@ -55,41 +55,39 @@ imc_commit(GtkIMContext *imc, gchar *txt, GtkWidget *wnd)
 }
 
 static gboolean
+unfiltered_key_press_event(GtkWidget *wnd, GdkEvent *event, GtkIMContext *imc)
+{
+  switch(event->key.keyval) {
+
+    case GDK_BackSpace:
+      x_cursor--;
+      if (x_cursor < 0) {
+        if (y_cursor > 0) {
+          x_cursor = n_cols - 1;
+          y_cursor--;
+        }
+        else
+          x_cursor = 0;
+      }
+      return TRUE;
+
+    default:
+      g_print("Key press gives \"%s\"\n", event->key.string);
+      real_commit(event->key.string, wnd);
+      return TRUE;
+  }
+}
+
+static gboolean
 filter_event(GtkWidget *wnd, GdkEvent *event, GtkIMContext *imc)
 {
   g_print("filter_event\n");
-  if (GDK_BUTTON_PRESS == event->type) {
-    g_print("Focusing and showing imc\n");
-    gtk_im_context_focus_in(imc);
-    hildon_gtk_im_context_show(imc);
-  }
-
   if (!hildon_gtk_im_context_filter_event(imc, event)) {
     switch (event->type) {
 
       case GDK_KEY_PRESS:
-        if (!gtk_im_context_filter_keypress(imc, &(event->key))) {
-          switch(event->key.keyval) {
-
-            case GDK_BackSpace:
-              x_cursor--;
-              if (x_cursor < 0) {
-                if (y_cursor > 0) {
-                  x_cursor = n_cols - 1;
-                  y_cursor--;
-                }
-                else
-                  x_cursor = 0;
-              }
-              
-              return TRUE;
-
-            default:
-              g_print("Key press gives \"%s\"\n", event->key.string);
-              real_commit(event->key.string, wnd);
-              return TRUE;
-          }
-        }
+        if (!gtk_im_context_filter_keypress(imc, &(event->key)))
+          return unfiltered_key_press_event(wnd, event, imc);
         else
           g_print("IM context handles this key press\n");
         return TRUE;
@@ -99,6 +97,7 @@ filter_event(GtkWidget *wnd, GdkEvent *event, GtkIMContext *imc)
           return FALSE;
         else
           g_print("IM context handles this key release\n");
+        return TRUE;
 
       default:
         return FALSE;
@@ -108,24 +107,41 @@ filter_event(GtkWidget *wnd, GdkEvent *event, GtkIMContext *imc)
   return TRUE;
 }
 
+static GtkIMContext *
+maybe_create_imc(GtkWidget *widget, char *msg) {
+  GtkIMContext *imc = g_object_get_data(G_OBJECT(widget), "im-context");
+
+  if (!imc) {
+    if (widget->window) {
+      g_print("create_imc: %s Creating imc\n", msg);
+      imc = gtk_im_multicontext_new();
+      gtk_im_context_set_client_window(imc, widget->window);
+      g_object_set(G_OBJECT(imc), "hildon-input-mode", (HILDON_GTK_INPUT_MODE_FULL | HILDON_GTK_INPUT_MODE_MULTILINE) & (~HILDON_GTK_INPUT_MODE_AUTOCAP), NULL);
+      g_object_set_data_full(G_OBJECT(widget), "im-context", imc, (GDestroyNotify)g_object_unref);
+      g_signal_connect(G_OBJECT(imc), "commit", (GCallback)imc_commit, widget);
+      g_signal_connect(G_OBJECT(widget), "key-press-event", (GCallback)filter_event, imc);
+      g_signal_connect(G_OBJECT(widget), "key-release-event", (GCallback)filter_event, imc);
+      g_signal_connect(G_OBJECT(widget), "button-press-event", (GCallback)filter_event, imc);
+      g_signal_connect(G_OBJECT(widget), "button-release-event", (GCallback)filter_event, imc);
+      g_signal_connect_swapped(G_OBJECT(widget), "focus-in-event", (GCallback)gtk_im_context_focus_in, imc);
+      g_signal_connect_swapped(G_OBJECT(widget), "focus-out-event", (GCallback)gtk_im_context_focus_out, imc);
+    }
+    else
+      g_print("create_imc: %s widget->window is NULL, so not creating imc\n", msg);
+  }
+  else
+      g_print("create_imc: %s imc already created\n", msg);
+
+  return imc;
+}
+
 static
 gboolean expose_event(GtkWidget *widget, GdkEventExpose *event, gpointer null)
 {
   GdkGC *gc = NULL;
   int Nix, cx_window, cy_window;
-  GtkIMContext *imc = g_object_get_data(G_OBJECT(widget), "im-context");
 
-  if (!imc) {
-    g_print("expose_event: Creating multicontext\n");
-    imc = gtk_im_multicontext_new();
-    gtk_im_context_set_client_window(imc, widget->window);
-    g_object_set_data_full(G_OBJECT(widget), "im-context", imc, (GDestroyNotify)g_object_unref);
-    g_signal_connect(G_OBJECT(imc), "commit", (GCallback)imc_commit, widget);
-    g_signal_connect(G_OBJECT(widget), "key-press-event", (GCallback)filter_event, imc);
-    g_signal_connect(G_OBJECT(widget), "key-release-event", (GCallback)filter_event, imc);
-    g_signal_connect(G_OBJECT(widget), "button-press-event", (GCallback)filter_event, imc);
-    g_signal_connect(G_OBJECT(widget), "button-release-event", (GCallback)filter_event, imc);
-  }
+  maybe_create_imc(widget, "From expose_event:");
 
   calc_sizes(widget->window, &cx_window, &cy_window);
 
@@ -174,12 +190,15 @@ main(int argc, char **argv)
   str = g_string_new("");
   gdk_rgb_find_color(gdk_colormap_get_system(), &clr_white);
 
-  wnd = g_object_new(GTK_TYPE_WINDOW, "visible", TRUE, NULL);
+  wnd = g_object_new(GTK_TYPE_WINDOW, NULL);
   GTK_WIDGET_SET_FLAGS(wnd, GTK_WIDGET_FLAGS(wnd) | GTK_DOUBLE_BUFFERED);
   gtk_widget_add_events(wnd, GDK_EXPOSURE_MASK | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
-
   g_signal_connect(wnd, "delete-event", (GCallback)gtk_main_quit, NULL);
   g_signal_connect(wnd, "expose-event", (GCallback)expose_event, NULL);
+
+  gtk_widget_show(wnd);
+
+  maybe_create_imc(wnd, "From main:");
 
   gtk_main();
 
