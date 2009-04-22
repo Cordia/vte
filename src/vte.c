@@ -3988,6 +3988,7 @@ vte_terminal_feed_child_using_modes(VteTerminal *terminal,
 static void
 vte_terminal_im_commit(GtkIMContext *im_context, gchar *text, VteTerminal *terminal)
 {
+  g_print("Committing \"%s\"\n", text);
 	_vte_debug_print(VTE_DEBUG_EVENTS,
 			"Input method committed `%s'.\n", text);
 	vte_terminal_feed_child_using_modes(terminal, text, -1);
